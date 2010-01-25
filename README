@@ -1,0 +1,9 @@
+
+Known dependencies:
+
+    sudo aptitude install omake \
+      liblwt-ocaml-dev libreact-ocaml-dev libpcre-ocaml-dev libounit-ocaml-dev
+
+Needs lwt 2.0.0 at least.
+Get lwt, ocamlfuse, ocaml-git from source.
+
