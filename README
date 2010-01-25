@@ -4,6 +4,8 @@ Known dependencies:
     sudo aptitude install omake \
       liblwt-ocaml-dev libreact-ocaml-dev libpcre-ocaml-dev libounit-ocaml-dev
 
-Needs lwt 2.0.0 at least.
+Needs lwt 2.0.0 exactly.
+Older doesn't have the syntax extension; current darcs has a get_while bug.
+
 Get lwt, ocamlfuse, ocaml-git from source.
 
