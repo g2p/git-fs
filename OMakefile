@@ -17,6 +17,7 @@ USE_OCAMLFIND = true
 OCAMLPACKS[] =
    bigarray
    threads
+   git
 
 if $(not $(OCAMLFIND_EXISTS))
    eprintln(This project requires ocamlfind, but is was not found.)

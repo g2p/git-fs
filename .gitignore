@@ -1,4 +1,5 @@
 /libfuse-ocaml
+/lwt
 /ocamlfuse
 /ocaml-git
 /.omakedb
