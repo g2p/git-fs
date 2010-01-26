@@ -1,0 +1,57 @@
+
+Full view of the git filesystem.
+
+Name:
+git in (get in)
+git sift
+git fs (gitfs is taken (twice), git-fs isn't)
+
+Idea: shallower hierarchy with xattrs?
+eg reflog messages
+
+$GIT_DIR/
+  sifter/
+
+branches/ -- git branch -a -- subset of all git refs, only {heads,remotes}
+  master/
+    BRANCH -- git show
+  remotes/
+    origin/
+      master/
+refs/ -- git for-each-ref
+  heads/
+    master/
+      BRANCH
+  remotes/
+    origin/
+      master/
+remotes/
+  origin/
+    master/
+tags/ -- git tag -l
+  v2.1/
+    BRANCH
+commits/
+  HASH/
+    msg
+    worktree
+    parents
+      HASH^
+      HASH^2
+worktrees/
+  HASH
+trees/
+  HASH
+index/
+
+BRANCH/
+  current -> commit symlink
+  reflog/
+    BRANCH@{0}/
+      msg
+      commit -> symlink
+  log/
+    BRANCH/
+    BRANCH^/
+    BRANCH~2/
+
