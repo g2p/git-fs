@@ -3,6 +3,11 @@ open LargeFile
 open Bigarray
 open Fuse
 
+open Lwt
+open Printf
+open Git
+open Git_types
+
 let default_stats = LargeFile.stat "."
 let fname = "hello"
 let name = "/" ^ fname
