@@ -1,0 +1,23 @@
+
+What OCaml fuse binding to use?
+
+libfuse-ocaml uses fuse_lowlevel_ops, inode-based, rather than fuse_operations,
+path-based. Inodes are created by fs_mknod, and info is mapped from inode
+to a more complete structure.
+
+ocamlfuse uses the highlevel ops. Inodes are managed by fuse (unless you pass
+use_ino). All ops take a path, and some file ops have state passed around
+via fuse's fh (filehandle). fh is created when returning from open or create.
+
+HL/LL differences explained:
+http://article.gmane.org/gmane.comp.file-systems.fuse.devel/3892
+
+Both bindings require build fixes; libfuse-ocaml had a bogus META and other
+stuff fixed. ocamlfuse isn't findlib-compatible. Let's see which are
+upstreamed first.
+libfuse-ocaml is LGPL3+ with linking exception.
+ocamlfuse is GPL2=.
+
+http://fuse.sourceforge.net/doxygen/structfuse__lowlevel__ops.html
+http://fuse.sourceforge.net/doxygen/structfuse__operations.html
+
