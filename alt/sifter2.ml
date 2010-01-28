@@ -236,7 +236,7 @@ let main args =
       ["-d";
        "-o"; "max_read=131072";
        "-o"; "max_write=131072";
-       "-o"; "allow_other";
+       (*"-o"; "allow_other";*)
        "-o"; "default_permissions"]
       fs_ops
   in
