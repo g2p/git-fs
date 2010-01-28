@@ -39,6 +39,7 @@ commits/
       HASH^
       HASH^2
 worktrees/
+  -- a worktree is a tree linked from a commit. How could we tell? Drop it.
   HASH
 trees/
   HASH
