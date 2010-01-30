@@ -1,3 +1,4 @@
+
 open Unix
 open LargeFile
 open Bigarray
@@ -9,6 +10,32 @@ open Git
 open Git_types
 
 
+(* lwt would sprinkle this module with monads everywhere, nip it in the bud. *)
+let wait_on_monad monad =
+  (* let waiter, wakener = Lwt.wait () in *)
+  (* XXX Lwt_main.run not thread-safe. Or just not reentrant, which is OK. *)
+  Lwt_main.run monad
+
+(* Going through the shell is evil/ugly,
+ * but I didn't find a non system()-based api *)
+(* Unlike a shell backtick, doesn't remove trailing newlines *)
+let backtick shell_cmd =
+  prerr_endline (Printf.sprintf "Command “%S”" shell_cmd);
+  let out_pipe = BatUnix.open_process_in shell_cmd in
+  BatIO.read_all out_pipe
+
+let trim_endline str =
+  (* XXX not what the spec says *)
+  BatString.trim str
+
+let git_wt = "/home/g2p/var/co/git/ocaml-git"
+let git_dir = git_wt ^ "/.git"
+
+let repo = wait_on_monad (Git.Repo.repo git_wt)
+
+let backtick_git cmd =
+  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
+  backtick cmd_str
 
 let dir_stats = LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
@@ -39,33 +66,54 @@ and scaffolding =
   |OtherHash of hash (* gitlink, etc *)
 
 
+(* association list for the fs root *)
 let root_al = [
   "trees", TreesScaff;
   "refs", RefsScaff;
   ]
 
+let slash_free s =
+  (*prerr_endline (Printf.sprintf "Encoding “%S”" s);*)
+  (* urlencode as soon as I find a module that implements it *)
+  (* Str.global_replace (Str.regexp_string "/") "-" s *)
+  BatBase64.str_encode s
+
+let reslash s =
+  let r = BatBase64.str_decode s in
+  (*prerr_endline (Printf.sprintf "Decoding into “%S”" r);*)
+  r
+
+let commit_of_ref ref =
+  (*
+  let opts = `BoolOpt ("hash", true) :: `BoolOpt ("verify", true) :: `Bare ref
+  :: [] in
+  let stdout s = s in
+  wait_on_monad (repo#git#exec ~stdout "show-ref" opts);
+  *)
+  trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ])
+
 let scaffolding_child scaff child =
   match scaff with
   |RootScaff -> List.assoc child root_al
   |TreesScaff -> raise Not_found (* XXX *)
-  |RefsScaff -> raise Not_found (* XXX *)
+  |RefsScaff -> let ref = reslash child in CommitHash (commit_of_ref ref)
   |FileHash _ -> raise Not_found
   |TreeHash _ -> raise Not_found (* XXX *)
   |CommitHash _ -> raise Not_found (* XXX *)
   |OtherHash _ -> raise Not_found
-
 
 let list_children = function
   |RootScaff -> root_al
   |TreesScaff -> [] (* XXX *)
-  |RefsScaff -> [] (* XXX *)
+  |RefsScaff -> let heads = wait_on_monad (repo#heads ()) in
+  List.map (fun (n, h) -> slash_free (trim_endline n), CommitHash (Git_types.string_of_id h)) heads
+  |TreeHash _ -> [] (* XXX *)
+  |CommitHash _ -> [] (* XXX *)
   |FileHash _ -> raise Not_found
-  |TreeHash _ -> raise Not_found (* XXX *)
-  |CommitHash _ -> raise Not_found (* XXX *)
   |OtherHash _ -> raise Not_found
 
 let is_container = function
-  |RootScaff _ -> true
+  |RootScaff -> true
   |TreesScaff -> true
   |RefsScaff -> true
   |FileHash _ -> false
@@ -117,7 +165,7 @@ let do_getattr path =
     raise (Unix_error (ENOENT, "stat", path))
 
 let do_opendir path flags =
-  prerr_endline ("Path is: " ^ path);
+  (*prerr_endline ("Path is: " ^ path);*)
   try
     let fh, scaff = lookup_and_cache path in
     Some fh
