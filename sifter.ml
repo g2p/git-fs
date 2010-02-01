@@ -1,13 +1,9 @@
+(* vim: set tw=0 sw=2 ts=2 et : *)
 
 open Unix
 open LargeFile
 open Bigarray
 open Fuse
-
-open Lwt
-open Printf
-open Git
-open Git_types
 
 
 (* lwt would sprinkle this module with monads everywhere, nip it in the bud. *)
@@ -20,7 +16,7 @@ let wait_on_monad monad =
  * but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
 let backtick shell_cmd =
-  prerr_endline (Printf.sprintf "Command “%S”" shell_cmd);
+  prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
   let out_pipe = BatUnix.open_process_in shell_cmd in
   BatIO.read_all out_pipe
 
@@ -45,6 +41,9 @@ let file_stats = { dir_stats with
   (* /proc uses zero, it works. /sys uses 4k. *)
   st_size = Int64.zero;
   }
+let exe_stats = { file_stats with
+  st_perm = 0o500;
+  }
 let symlink_stats = { file_stats with
   st_kind = S_LNK;
   }
@@ -57,18 +56,19 @@ let contents : Fuse.buffer = Array1.of_array Bigarray.char Bigarray.c_layout
 
 type hash = string
 
-type scaff_assoc = (string * scaffolding) list
-and scaff_assoc_io = unit -> scaff_assoc
-and scaffolding =
+type scaffolding =
   |RootScaff
   |TreesScaff
   |RefsScaff
+  |CommitsScaff
   |RefScaff of string
   |Symlink of string
-  |FileHash of hash
+  |PlainBlob of hash
+  |ExeBlob of hash
   |TreeHash of hash
   |CommitHash of hash
   |CommitMsg of hash
+  |CommitParents of hash
   |OtherHash of hash (* gitlink, etc *)
 
 
@@ -76,7 +76,7 @@ and scaffolding =
 let root_al = [
   "trees", TreesScaff;
   "refs", RefsScaff;
-  (*"commits", CommitsScaff;*)
+  "commits", CommitsScaff;
   ]
 
 let slash_free s =
@@ -115,6 +115,61 @@ let tree_symlink_of_commit hash depth =
   let to_root = parents_depth depth in
   Symlink (to_root ^ "trees/" ^ (tree_of_commit hash))
 
+type children =
+  |Deep of (string * scaffolding) list
+  |Shallow of string list
+
+let fh_data = Hashtbl.create 16
+let fh_by_name = Hashtbl.create 16
+
+let next_fh = ref 0
+
+let prime_cache path scaff =
+  try
+    Hashtbl.find fh_by_name path
+  with Not_found ->
+    let fh = !next_fh in
+    incr next_fh;
+    Hashtbl.add fh_by_name path (fh, scaff);
+    Hashtbl.add fh_data fh scaff;
+    (fh, scaff)
+
+let tree_children_shallow hash =
+  (* XXX We could easily store for later nodes for the children,
+   * including types and permissions. This is easier than looking them up. *)
+  let s = backtick_git [ "ls-tree"; "--name-only"; "-z"; "--"; hash; ] in
+  BatString.nsplit s "\000"
+
+let tree_children_deep hash =
+  let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
+  let rgx = Str.regexp "^\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\(.*\\)\000" in
+  let rec parse lines offset =
+    if String.length lines = offset then []
+    else if not (Str.string_match rgx lines offset)
+    then failwith (
+      Printf.sprintf "Ill-formatted ls-tree lines: %S" (
+        BatString.slice ~first:offset lines))
+    else (* XXX not thread-safe *)
+      let kind_s = Str.matched_group 1 lines in
+      let hash = Str.matched_group 2 lines in
+      let name = Str.matched_group 3 lines in
+      let scaff = match kind_s with
+      |"100644 blob" -> PlainBlob hash
+      |"100755 blob" -> ExeBlob hash
+      |"040000 tree" -> TreeHash hash
+      |_ -> assert false
+      in (name, scaff)::(parse lines (Str.match_end ()))
+  in parse lines 0
+
+let tree_children_names hash =
+  if false
+  then tree_children_shallow hash
+  else let deep = tree_children_deep hash in
+  List.iter (fun (name, scaff) ->
+    ignore (prime_cache ("/trees/" ^ hash ^ "/" ^ name) scaff))
+    deep;
+  List.map fst deep
+
 let depth_of_scaff = function
   |RootScaff -> 0
   |RefScaff _ -> 2
@@ -124,9 +179,11 @@ let depth_of_scaff = function
 let scaffolding_child scaff child =
   match scaff with
   |RootScaff -> List.assoc child root_al
-  |TreesScaff -> raise Not_found (* XXX *)
+  |TreesScaff -> TreeHash child
   |RefsScaff -> let ref = reslash child in RefScaff ref
-  |FileHash _ -> raise Not_found
+  |CommitsScaff -> CommitHash child
+  |PlainBlob _ -> raise Not_found
+  |ExeBlob _ -> raise Not_found
   |TreeHash _ -> raise Not_found (* XXX *)
   |RefScaff name ->
     if child = "current" then commit_symlink_of_ref name (depth_of_scaff scaff)
@@ -136,9 +193,10 @@ let scaffolding_child scaff child =
     if child = "msg" then CommitMsg hash
     else if child = "worktree" then tree_symlink_of_commit hash (depth_of_scaff
     scaff)
-    (*else if child = "parents" then CommitParents hash*)
+    else if child = "parents" then CommitParents hash
     else raise Not_found
   |CommitMsg _ -> raise Not_found
+  |CommitParents _ -> raise Not_found
   |Symlink _ -> raise Not_found
   |OtherHash _ -> raise Not_found
 
@@ -148,32 +206,22 @@ let list_children = function
   |RefsScaff -> let heads = wait_on_monad (repo#heads ()) in
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
-  |TreeHash _ -> [] (* XXX *)
-  |CommitHash _ -> [] (* XXX *)
-  |FileHash _ -> raise Not_found
+  |CommitsScaff -> [] (* XXX *)
+  |TreeHash hash -> tree_children_names hash
+  |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
+  |PlainBlob _ -> raise Not_found
+  |ExeBlob _ -> raise Not_found
   |OtherHash _ -> raise Not_found
   |CommitMsg _ -> raise Not_found
+  |CommitParents _ -> raise Not_found
   |Symlink _ -> raise Not_found
-
-let is_container = function
-  |RootScaff -> true
-  |TreesScaff -> true
-  |RefsScaff -> true
-  |TreeHash _ -> true
-  |CommitHash _ -> true
-  |RefScaff _ -> true
-
-  |FileHash _ -> false
-  |OtherHash _ -> false
-  |CommitMsg _ -> false
-  |Symlink _ -> false
 
 
 let lookup scaff path =
   let rec lookup_r scaff = function
     |[] -> scaff
     |dir::rest ->
-	lookup_r (scaffolding_child scaff dir) rest
+  lookup_r (scaffolding_child scaff dir) rest
   in match BatString.nsplit path "/" with
   |""::""::[] -> lookup_r scaff []
   |""::path_comps ->
@@ -182,41 +230,30 @@ let lookup scaff path =
 
 
 
-let fh_data = Hashtbl.create 16
-let fh_by_name = Hashtbl.create 16
-
-let next_fh = ref 0
+let lookup_fh fh =
+  Hashtbl.find fh_data fh
 
 let lookup_and_cache path =
   try
     Hashtbl.find fh_by_name path
   with Not_found ->
     let scaff = lookup RootScaff path in
-    let fh = !next_fh in
-    incr next_fh;
-    Hashtbl.add fh_by_name path (fh, scaff);
-    Hashtbl.add fh_data fh scaff;
-    (fh, scaff)
-
-let lookup_fh fh =
-  Hashtbl.find fh_data fh
-
+    prime_cache path scaff
 
 
 let do_getattr path =
   try
-   let scaff = lookup RootScaff path in
-   (*if is_container scaff
-    then dir_stats
-    else file_stats*)
-   match scaff with
+   match lookup RootScaff path with
    |RootScaff -> dir_stats
    |TreesScaff -> dir_stats
    |RefsScaff -> dir_stats
+   |CommitsScaff -> dir_stats
    |TreeHash _ -> dir_stats
    |CommitHash _ -> dir_stats
    |RefScaff _ -> dir_stats
-   |FileHash _ -> file_stats
+   |CommitParents _ -> dir_stats
+   |PlainBlob _ -> file_stats
+   |ExeBlob _ -> exe_stats
    |OtherHash _ -> file_stats
    |CommitMsg _ -> file_stats
    |Symlink _ -> symlink_stats
@@ -236,8 +273,23 @@ let do_readdir path fh =
     let scaff = lookup_fh fh in
     "."::".."::(list_children scaff)
   with Not_found ->
-    assert false (* because opendir passed *)
-    (*raise (Unix_error (ENOENT, "readdir", path))*)
+    if true then assert false (* because opendir passed *)
+    else raise (Unix_error (ENOENT, "readdir", path))
+
+let do_readdir arg =
+  try
+    prerr_endline "Flap"; flush_all ();
+    Printexc.record_backtrace true;
+    assert (Printexc.backtrace_status ());
+    prerr_endline "Emu"; flush_all ();
+    let r = do_readdir arg in
+    prerr_endline "Bizdi"; flush_all (); r
+  with e ->
+    prerr_endline "Yams"; flush_all ();
+    prerr_endline (Printexc.to_string e); flush_all ();
+    Printexc.print_backtrace Pervasives.stderr; flush_all ();
+    prerr_endline "Splotch"; flush_all ();
+    raise e
 
 let do_readlink path =
   try
@@ -259,18 +311,18 @@ let do_read path buf ofs fh =
     else
       let ofs = Int64.to_int ofs in
       let len = min ((Array1.dim contents) - ofs) (Array1.dim buf) in
-	(Array1.blit (Array1.sub contents ofs len) (Array1.sub buf 0 len);
-	 len)
+      (Array1.blit (Array1.sub contents ofs len) (Array1.sub buf 0 len);
+      len)
   else raise (Unix_error (ENOENT, "read", path))
 
 let _ =
   main Sys.argv
     {
       default_operations with
-	getattr = do_getattr;
-	opendir = do_opendir;
-	readdir = do_readdir;
-	readlink = do_readlink;
-	fopen = do_fopen;
-	read = do_read;
+        getattr = do_getattr;
+        opendir = do_opendir;
+        readdir = do_readdir;
+        readlink = do_readlink;
+        fopen = do_fopen;
+        read = do_read;
     }
