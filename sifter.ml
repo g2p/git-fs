@@ -142,7 +142,7 @@ let tree_children_shallow hash =
 
 let tree_children_deep hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
-  let rgx = Str.regexp "^\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\(.*\\)\000" in
+  let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
   let rec parse lines offset =
     if String.length lines = offset then []
     else if not (Str.string_match rgx lines offset)
