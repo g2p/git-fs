@@ -14,14 +14,14 @@ $GIT_DIR/
 
 branches/ -- git branch -a -- subset of all git refs, only {heads,remotes}
   master/
-    BRANCH -- git show
+    REF (name) -- git show
   remotes/
     origin/
       master/
 refs/ -- git for-each-ref
   heads/
     master/
-      BRANCH
+      REF (name)
   remotes/
     origin/
       master/
@@ -30,14 +30,9 @@ remotes/
     master/
 tags/ -- git tag -l
   v2.1/
-    BRANCH
+    REF (name)
 commits/
-  HASH/
-    msg
-    worktree
-    parents
-      HASH^
-      HASH^2
+  COMMIT (hash)/
 worktrees/
   -- a worktree is a tree linked from a commit. How could we tell? Drop it.
   HASH
@@ -45,14 +40,21 @@ trees/
   HASH
 index/
 
-BRANCH/
-  current -> commit symlink
+COMMIT (hash)/
+  msg
+  worktree -> symlink TREE (hash)
+  parents
+    HASH^
+    HASH^2
+  log/
+    name/
+    name^/
+    name~2/
+
+REF (name)/
+  current -> symlink COMMIT (hash)
   reflog/
-    BRANCH@{0}/
+    name@{0}/
       msg
       commit -> symlink
-  log/
-    BRANCH/
-    BRANCH^/
-    BRANCH~2/
 
