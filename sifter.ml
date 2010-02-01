@@ -276,21 +276,6 @@ let do_readdir path fh =
     if true then assert false (* because opendir passed *)
     else raise (Unix_error (ENOENT, "readdir", path))
 
-let do_readdir arg =
-  try
-    prerr_endline "Flap"; flush_all ();
-    Printexc.record_backtrace true;
-    assert (Printexc.backtrace_status ());
-    prerr_endline "Emu"; flush_all ();
-    let r = do_readdir arg in
-    prerr_endline "Bizdi"; flush_all (); r
-  with e ->
-    prerr_endline "Yams"; flush_all ();
-    prerr_endline (Printexc.to_string e); flush_all ();
-    Printexc.print_backtrace Pervasives.stderr; flush_all ();
-    prerr_endline "Splotch"; flush_all ();
-    raise e
-
 let do_readlink path =
   try
    let scaff = lookup RootScaff path in
