@@ -134,16 +134,17 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
-let children_cache = Hashtbl.create 16
-let prime_children_cache scaff children =
-  try
-    Hashtbl.find children_cache scaff
-  with Not_found ->
-    Hashtbl.add children_cache scaff children;
-    children
-
-let lookup_children_cache scaff child =
-  List.assoc child (Hashtbl.find children_cache scaff)
+let prime_children_cache, lookup_children_cache =
+  let children_cache = Hashtbl.create 16
+  in let prime_children_cache scaff children =
+    try
+      Hashtbl.find children_cache scaff
+    with Not_found ->
+      Hashtbl.add children_cache scaff children;
+      children
+  in let lookup_children_cache scaff child =
+    List.assoc child (Hashtbl.find children_cache scaff)
+  in prime_children_cache, lookup_children_cache
 
 let tree_children_shallow hash =
   (* XXX We could easily store for later nodes for the children,
