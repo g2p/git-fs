@@ -134,6 +134,17 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
+let children_cache = Hashtbl.create 16
+let prime_children_cache scaff children =
+  try
+    Hashtbl.find children_cache scaff
+  with Not_found ->
+    Hashtbl.add children_cache scaff children;
+    children
+
+let lookup_children_cache scaff child =
+  List.assoc child (Hashtbl.find children_cache scaff)
+
 let tree_children_shallow hash =
   (* XXX We could easily store for later nodes for the children,
    * including types and permissions. This is easier than looking them up. *)
@@ -165,9 +176,7 @@ let tree_children_names hash =
   if false
   then tree_children_shallow hash
   else let deep = tree_children_deep hash in
-  List.iter (fun (name, scaff) ->
-    ignore (prime_cache ("/trees/" ^ hash ^ "/" ^ name) scaff))
-    deep;
+  ignore (prime_children_cache (TreeHash hash) deep);
   List.map fst deep
 
 let depth_of_scaff = function
@@ -184,7 +193,7 @@ let scaffolding_child scaff child =
   |CommitsScaff -> CommitHash child
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
-  |TreeHash _ -> raise Not_found (* XXX *)
+  |TreeHash _ -> lookup_children_cache scaff child
   |RefScaff name ->
     if child = "current" then commit_symlink_of_ref name (depth_of_scaff scaff)
     (*else if child = "reflog" then ReflogScaff name*)
