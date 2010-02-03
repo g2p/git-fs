@@ -133,7 +133,7 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
-let tree_children_deep hash =
+let tree_children_uncached hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
   let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
   let rec parse lines offset =
@@ -154,19 +154,19 @@ let tree_children_deep hash =
       in (name, scaff)::(parse lines (Str.match_end ()))
   in parse lines 0
 
-let tree_children_names =
+let tree_children =
   let children_cache = Hashtbl.create 16
-  in let tree_children_names hash =
+  in let tree_children hash =
     try
       Hashtbl.find children_cache hash
     with Not_found ->
-      let children = tree_children_deep hash in
+      let children = tree_children_uncached hash in
       Hashtbl.add children_cache hash children;
       children
-  in tree_children_names
+  in tree_children
 
 let tree_child hash child =
-  List.assoc child (tree_children_names hash)
+  List.assoc child (tree_children hash)
 
 let depth_of_scaff = function
   |RootScaff -> 0
@@ -205,7 +205,7 @@ let list_children = function
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
   |CommitsScaff -> [] (* XXX *)
-  |TreeHash hash -> List.map fst (tree_children_names hash)
+  |TreeHash hash -> List.map fst (tree_children hash)
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
