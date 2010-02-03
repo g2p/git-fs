@@ -133,20 +133,6 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
-let prime_children_cache, lookup_children_cache, lookup_children_cache0 =
-  let children_cache = Hashtbl.create 16
-  in let prime_children_cache hash children =
-    try
-      Hashtbl.find children_cache hash
-    with Not_found ->
-      Hashtbl.add children_cache hash children;
-      children
-  in let lookup_children_cache0 hash =
-    Hashtbl.find children_cache hash
-  in let lookup_children_cache hash child =
-    List.assoc child (lookup_children_cache0 hash)
-  in prime_children_cache, lookup_children_cache, lookup_children_cache0
-
 let tree_children_deep hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
   let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
@@ -168,12 +154,16 @@ let tree_children_deep hash =
       in (name, scaff)::(parse lines (Str.match_end ()))
   in parse lines 0
 
-let tree_children_names hash =
-  try
-    lookup_children_cache0 hash
-  with Not_found ->
-    let deep = tree_children_deep hash in
-    prime_children_cache hash deep
+let tree_children_names =
+  let children_cache = Hashtbl.create 16
+  in let tree_children_names hash =
+    try
+      Hashtbl.find children_cache hash
+    with Not_found ->
+      let children = tree_children_deep hash in
+      Hashtbl.add children_cache hash children;
+      children
+  in tree_children_names
 
 let tree_child hash child =
   List.assoc child (tree_children_names hash)
