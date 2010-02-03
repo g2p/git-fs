@@ -154,7 +154,7 @@ let tree_children_uncached hash =
       in (name, scaff)::(parse lines (Str.match_end ()))
   in parse lines 0
 
-let tree_children =
+let tree_children, known_hashes =
   let children_cache = Hashtbl.create 16
   in let tree_children hash =
     try
@@ -163,7 +163,11 @@ let tree_children =
       let children = tree_children_uncached hash in
       Hashtbl.add children_cache hash children;
       children
-  in tree_children
+  and known_hashes () =
+    let acc = ref [] in
+    Hashtbl.iter (fun k v -> acc := k::!acc) children_cache;
+    !acc
+  in tree_children, known_hashes
 
 let tree_child hash child =
   List.assoc child (tree_children hash)
@@ -177,7 +181,7 @@ let depth_of_scaff = function
 let scaffolding_child scaff child =
   match scaff with
   |RootScaff -> List.assoc child root_al
-  |TreesScaff -> TreeHash child
+  |TreesScaff -> TreeHash child (* XXX should check for existence *)
   |RefsScaff -> let ref = reslash child in RefScaff ref
   |CommitsScaff -> CommitHash child
   |PlainBlob _ -> raise Not_found
@@ -200,7 +204,8 @@ let scaffolding_child scaff child =
 
 let list_children = function
   |RootScaff -> List.map fst root_al
-  |TreesScaff -> [] (* XXX *)
+  |TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
+      known_hashes ()
   |RefsScaff -> let heads = wait_on_monad (repo#heads ()) in
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
