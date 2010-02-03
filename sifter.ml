@@ -48,8 +48,6 @@ let symlink_stats = { file_stats with
   st_kind = S_LNK;
   }
 
-let fname = "hello"
-let name = "/" ^ fname
 let contents : Fuse.buffer = Array1.of_array Bigarray.char Bigarray.c_layout
   [|'H';'e';'l';'l';'o';' ';'w';'o';'r';'l';'d';'!'|]
 
@@ -99,9 +97,14 @@ let commit_of_ref ref =
   *)
   trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ])
 
-let tree_of_commit hash =
+let tree_of_commit_with_prefix hash prefix =
+  (* prefix should be empty or a relative path with no initial slash
+   * and no . or .. *)
   trim_endline (backtick_git [ "rev-parse"; "--revs-only"; "--no-flags";
-  "--verify"; "--quiet"; hash ^ "^{tree}" ])
+  "--verify"; "--quiet"; hash ^ "^{tree}" ^ ":" ^ prefix ])
+
+let tree_of_commit hash =
+  tree_of_commit_with_prefix hash ""
 
 let rec parents_depth depth =
   if depth = 0 then ""
@@ -114,10 +117,6 @@ let commit_symlink_of_ref ref depth =
 let tree_symlink_of_commit hash depth =
   let to_root = parents_depth depth in
   Symlink (to_root ^ "trees/" ^ (tree_of_commit hash))
-
-type children =
-  |Deep of (string * scaffolding) list
-  |Shallow of string list
 
 let fh_data = Hashtbl.create 16
 let fh_by_name = Hashtbl.create 16
@@ -134,23 +133,19 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
-let prime_children_cache, lookup_children_cache =
+let prime_children_cache, lookup_children_cache, lookup_children_cache0 =
   let children_cache = Hashtbl.create 16
-  in let prime_children_cache scaff children =
+  in let prime_children_cache hash children =
     try
-      Hashtbl.find children_cache scaff
+      Hashtbl.find children_cache hash
     with Not_found ->
-      Hashtbl.add children_cache scaff children;
+      Hashtbl.add children_cache hash children;
       children
-  in let lookup_children_cache scaff child =
-    List.assoc child (Hashtbl.find children_cache scaff)
-  in prime_children_cache, lookup_children_cache
-
-let tree_children_shallow hash =
-  (* XXX We could easily store for later nodes for the children,
-   * including types and permissions. This is easier than looking them up. *)
-  let s = backtick_git [ "ls-tree"; "--name-only"; "-z"; "--"; hash; ] in
-  BatString.nsplit s "\000"
+  in let lookup_children_cache0 hash =
+    Hashtbl.find children_cache hash
+  in let lookup_children_cache hash child =
+    List.assoc child (lookup_children_cache0 hash)
+  in prime_children_cache, lookup_children_cache, lookup_children_cache0
 
 let tree_children_deep hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
@@ -174,11 +169,14 @@ let tree_children_deep hash =
   in parse lines 0
 
 let tree_children_names hash =
-  if false
-  then tree_children_shallow hash
-  else let deep = tree_children_deep hash in
-  ignore (prime_children_cache (TreeHash hash) deep);
-  List.map fst deep
+  try
+    lookup_children_cache0 hash
+  with Not_found ->
+    let deep = tree_children_deep hash in
+    prime_children_cache hash deep
+
+let tree_child hash child =
+  List.assoc child (tree_children_names hash)
 
 let depth_of_scaff = function
   |RootScaff -> 0
@@ -194,7 +192,7 @@ let scaffolding_child scaff child =
   |CommitsScaff -> CommitHash child
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
-  |TreeHash _ -> lookup_children_cache scaff child
+  |TreeHash hash -> tree_child hash child
   |RefScaff name ->
     if child = "current" then commit_symlink_of_ref name (depth_of_scaff scaff)
     (*else if child = "reflog" then ReflogScaff name*)
@@ -217,7 +215,7 @@ let list_children = function
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
   |CommitsScaff -> [] (* XXX *)
-  |TreeHash hash -> tree_children_names hash
+  |TreeHash hash -> List.map fst (tree_children_names hash)
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
@@ -253,22 +251,23 @@ let lookup_and_cache path =
 
 let do_getattr path =
   try
-   match lookup RootScaff path with
-   |RootScaff -> dir_stats
-   |TreesScaff -> dir_stats
-   |RefsScaff -> dir_stats
-   |CommitsScaff -> dir_stats
-   |TreeHash _ -> dir_stats
-   |CommitHash _ -> dir_stats
-   |RefScaff _ -> dir_stats
-   |CommitParents _ -> dir_stats
-   |PlainBlob _ -> file_stats
-   |ExeBlob _ -> exe_stats
-   |OtherHash _ -> file_stats
-   |CommitMsg _ -> file_stats
-   |Symlink _ -> symlink_stats
-   with Not_found ->
-    raise (Unix_error (ENOENT, "stat", path))
+    let fh, scaff = lookup_and_cache path in
+    match scaff with
+    |RootScaff -> dir_stats
+    |TreesScaff -> dir_stats
+    |RefsScaff -> dir_stats
+    |CommitsScaff -> dir_stats
+    |TreeHash _ -> dir_stats
+    |CommitHash _ -> dir_stats
+    |RefScaff _ -> dir_stats
+    |CommitParents _ -> dir_stats
+    |PlainBlob _ -> file_stats
+    |ExeBlob _ -> exe_stats
+    |OtherHash _ -> file_stats
+    |CommitMsg _ -> file_stats
+    |Symlink _ -> symlink_stats
+    with Not_found ->
+      raise (Unix_error (ENOENT, "stat", path))
 
 let do_opendir path flags =
   (*prerr_endline ("Path is: " ^ path);*)
@@ -288,27 +287,39 @@ let do_readdir path fh =
 
 let do_readlink path =
   try
-   let scaff = lookup RootScaff path in
-   match scaff with
-   |Symlink target -> target
-   |_ -> raise (Unix_error (EINVAL, "readlink (not a link)", path))
-   with Not_found ->
+    let fh, scaff = lookup_and_cache path in
+    match scaff with
+    |Symlink target -> target
+    |_ -> raise (Unix_error (EINVAL, "readlink (not a link)", path))
+  with Not_found ->
     raise (Unix_error (ENOENT, "readlink", path))
 
 
 let do_fopen path flags =
-  if path = name then None
-  else raise (Unix_error (ENOENT, "open", path))
+  try
+    let fh, scaff = lookup_and_cache path in
+    match scaff with
+    |PlainBlob _ -> Some fh
+    |ExeBlob _ -> Some fh
+    |OtherHash _ -> Some fh
+    |CommitMsg _ -> Some fh
+    (* |Symlink _ -> () *) (* our symlinks all point to directories *)
+    (* XXX Maybe introduce different symlinks for our hashlinks
+     * and the symlinks git repos can contain. *)
+    |_ -> raise (Unix_error (EINVAL, "fopen (not a file)", path))
+  with Not_found ->
+    raise (Unix_error (ENOENT, "fopen", path))
 
 let do_read path buf ofs fh =
-  if path = name then
+  try
+    let scaff = lookup_fh fh in ignore scaff;
     if ofs > (Int64.of_int max_int) then 0
     else
       let ofs = Int64.to_int ofs in
       let len = min ((Array1.dim contents) - ofs) (Array1.dim buf) in
       (Array1.blit (Array1.sub contents ofs len) (Array1.sub buf 0 len);
       len)
-  else raise (Unix_error (ENOENT, "read", path))
+  with Not_found -> raise (Unix_error (ENOENT, "read", path))
 
 let _ =
   main Sys.argv
@@ -321,3 +332,4 @@ let _ =
         fopen = do_fopen;
         read = do_read;
     }
+

@@ -1,5 +1,5 @@
 
-What OCaml fuse binding to use?
+== What OCaml fuse binding to use?
 
 libfuse-ocaml uses fuse_lowlevel_ops, inode-based, rather than fuse_operations,
 path-based. Inodes are created by fs_mknod, and info is mapped from inode
@@ -20,4 +20,33 @@ ocamlfuse is GPL2=.
 
 http://fuse.sourceforge.net/doxygen/structfuse__lowlevel__ops.html
 http://fuse.sourceforge.net/doxygen/structfuse__operations.html
+
+== How to access and cache git data?
+
+Data is accessed by path or inode, depending on the binding.
+FileHandles are for rare cases with the high-level binding.
+
+Tree data can be gotten in one pass for the entire tree,
+in one pass for a node's children, or in one pass for just one item.
+It's not possible to get tree node and tree children at once.
+
+Depending on the strategy, we can end up with data cached with different
+keys. The keys are either:
+  * tree root, tree path
+  * tree parent, child name
+
+The first strategy is slightly wasteful in the case of subtree merges,
+since it will ask again for things cached at a different path. That can also
+happen in the not very likely case of access through /tree/hash paths for
+a non-worktree-root hash.
+The second is more expensive in case of subdirectory access when
+the parents aren't cached, because it must hit the parent directories
+first to find a key.
+
+The first needs a full path which requires the high-level binding or some
+multimap cache of inode->path (more memory).
+The second can work with both bindings, assuming a map cache of inode->hash
+for the low-level binding.
+(nb: consider making inode<->hash bijective.
+caveat: that will look like directory hardlinks.)
 
