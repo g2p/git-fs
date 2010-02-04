@@ -12,6 +12,7 @@ let wait_on_monad monad =
   (* XXX Lwt_main.run not thread-safe. Or just not reentrant, which is OK. *)
   Lwt_main.run monad
 
+(* Run a command, return stdout data as a string *)
 (* Going through the shell is evil/ugly,
  * but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
@@ -19,6 +20,23 @@ let backtick shell_cmd =
   prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
   let out_pipe = BatUnix.open_process_in shell_cmd in
   BatIO.read_all out_pipe
+
+(* Run a command, read the output into a BigArray.Array1.
+ *
+ * This Bigarray api is supposedly efficient, but inconvenient
+ * for us without dropping to C code (see ocamlfuse/lib/Util_unix_stub.c ).
+ *
+ *)
+let subprocess_read_bigarray shell_cmd offset big_array =
+  prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
+  let out_pipe = BatUnix.open_process_in shell_cmd in
+  let out_fd = BatUnix.descr_of_input out_pipe in
+  (* Can't seek a pipe. Read and ignore. *)
+  (* XXX lossy int64 conversion *)
+  ignore (BatIO.really_nread out_pipe (Int64.to_int offset));
+    (* Returns how much was read, may raise. *)
+    Unix_util.read out_fd big_array
+
 
 let trim_endline str =
   (* XXX not what the spec says, this trims both ends *)
@@ -33,13 +51,22 @@ let backtick_git cmd =
   let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
   backtick cmd_str
 
+let subprocess_read_bigarray_git cmd offset big_array =
+  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
+  subprocess_read_bigarray cmd_str offset big_array
+
+
 let dir_stats = LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
   st_nlink = 1;
   st_kind = S_REG;
   st_perm = 0o400;
-  (* /proc uses zero, it works. /sys uses 4k. *)
-  st_size = Int64.zero;
+  (* /proc uses zero, it works.
+   * /sys uses 4k.
+   * zero doesn't work with fuse, at least high-level fuse.
+   *)
+  (*st_size = Int64.zero;*)
+  st_size = Int64.of_int 4096;
   }
 let exe_stats = { file_stats with
   st_perm = 0o500;
@@ -69,6 +96,13 @@ type scaffolding =
   |CommitParents of hash
   |OtherHash of hash (* gitlink, etc *)
 
+let rec canonical = function
+  |RootScaff -> "."
+  |TreesScaff -> "trees"
+  |RefsScaff -> "refs"
+  |CommitsScaff -> "commits"
+  |TreeHash hash -> (canonical TreesScaff) ^ "/" ^ hash
+  |_ -> failwith "Not implemented"
 
 (* association list for the fs root *)
 let root_al = [
@@ -171,6 +205,8 @@ let tree_children, known_hashes =
 
 let tree_child hash child =
   List.assoc child (tree_children hash)
+let tree_children_names hash =
+  List.map fst (tree_children hash)
 
 let depth_of_scaff = function
   |RootScaff -> 0
@@ -187,16 +223,15 @@ let scaffolding_child scaff child =
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
   |TreeHash hash -> tree_child hash child
-  |RefScaff name ->
-    if child = "current" then commit_symlink_of_ref name (depth_of_scaff scaff)
-    (*else if child = "reflog" then ReflogScaff name*)
-    else raise Not_found
-  |CommitHash hash ->
-    if child = "msg" then CommitMsg hash
-    else if child = "worktree" then tree_symlink_of_commit hash (depth_of_scaff
-    scaff)
-    else if child = "parents" then CommitParents hash
-    else raise Not_found
+  |RefScaff name when child = "current" ->
+      commit_symlink_of_ref name (depth_of_scaff scaff)
+  (*|RefScaff name when child = "reflog" -> ReflogScaff name*)
+  |RefScaff name -> raise Not_found
+  |CommitHash hash when child = "msg" -> CommitMsg hash
+  |CommitHash hash when child = "parents" -> CommitParents hash
+  |CommitHash hash when child = "worktree" ->
+      tree_symlink_of_commit hash (depth_of_scaff scaff)
+  |CommitHash _ -> raise Not_found
   |CommitMsg _ -> raise Not_found
   |CommitParents _ -> raise Not_found
   |Symlink _ -> raise Not_found
@@ -210,7 +245,7 @@ let list_children = function
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
   |CommitsScaff -> [] (* XXX *)
-  |TreeHash hash -> List.map fst (tree_children hash)
+  |TreeHash hash -> tree_children_names hash
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
@@ -243,6 +278,20 @@ let lookup_and_cache path =
     let scaff = lookup RootScaff path in
     prime_cache path scaff
 
+
+let blob_size_uncached hash =
+  int_of_string (trim_endline (backtick_git [ "cat-file"; "-s"; hash; ]))
+
+let blob_size =
+  let cache = Hashtbl.create 16
+  in let blob_size hash =
+    try
+      Hashtbl.find cache hash
+    with Not_found ->
+      let r = blob_size_uncached hash in
+      Hashtbl.add cache hash r;
+      r
+  in blob_size
 
 let do_getattr path =
   try
@@ -305,16 +354,23 @@ let do_fopen path flags =
   with Not_found ->
     raise (Unix_error (ENOENT, "fopen", path))
 
+(* Read file data into a Bigarray.Array1.
+ *
+ * libfuse-ocaml takes a string, making it simpler than ocamlfuse.
+ *)
 let do_read path buf ofs fh =
   try
     let scaff = lookup_fh fh in ignore scaff;
-    if ofs > (Int64.of_int max_int) then 0
-    else
-      let ofs = Int64.to_int ofs in
-      let len = min ((Array1.dim contents) - ofs) (Array1.dim buf) in
-      (Array1.blit (Array1.sub contents ofs len) (Array1.sub buf 0 len);
-      len)
-  with Not_found -> raise (Unix_error (ENOENT, "read", path))
+    let hash = match scaff with
+    |PlainBlob hash -> hash
+    |ExeBlob hash -> hash
+    |_ -> failwith "Not a blob"
+    in
+    let did_read_len =
+      subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf in
+    did_read_len
+  with Not_found ->
+    raise (Unix_error (ENOENT, "read", path))
 
 let _ =
   main Sys.argv
