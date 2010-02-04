@@ -64,6 +64,8 @@ let file_stats = { dir_stats with
   (* /proc uses zero, it works.
    * /sys uses 4k.
    * zero doesn't work with fuse, at least high-level fuse.
+   * (unless it's cat acting up, but proc indicates otherwise.
+   * strace cat with 0 size someday)
    *)
   (*st_size = Int64.zero;*)
   st_size = Int64.of_int 4096;
@@ -74,9 +76,6 @@ let exe_stats = { file_stats with
 let symlink_stats = { file_stats with
   st_kind = S_LNK;
   }
-
-let contents : Fuse.buffer = Array1.of_array Bigarray.char Bigarray.c_layout
-  [|'H';'e';'l';'l';'o';' ';'w';'o';'r';'l';'d';'!'|]
 
 
 type hash = string
