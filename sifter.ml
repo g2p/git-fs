@@ -101,7 +101,17 @@ let rec canonical = function
   |RefsScaff -> "refs"
   |CommitsScaff -> "commits"
   |TreeHash hash -> (canonical TreesScaff) ^ "/" ^ hash
+  |CommitHash hash -> (canonical CommitsScaff) ^ "/" ^ hash
   |_ -> failwith "Not implemented"
+
+let rec parents_depth depth =
+  if depth = 0 then ""
+  else "../" ^ parents_depth (depth - 1)
+
+let symlink_to_scaff scaff depth =
+  let path = canonical scaff in
+  let to_root = parents_depth depth in
+  Symlink (to_root ^ path)
 
 (* association list for the fs root *)
 let root_al = [
@@ -139,17 +149,13 @@ let tree_of_commit_with_prefix hash prefix =
 let tree_of_commit hash =
   tree_of_commit_with_prefix hash ""
 
-let rec parents_depth depth =
-  if depth = 0 then ""
-  else "../" ^ parents_depth (depth - 1)
-
 let commit_symlink_of_ref ref depth =
-  let to_root = parents_depth depth in
-  Symlink (to_root ^ "commits/" ^ (commit_of_ref ref))
+  let scaff = CommitHash (commit_of_ref ref) in
+  symlink_to_scaff scaff depth
 
 let tree_symlink_of_commit hash depth =
-  let to_root = parents_depth depth in
-  Symlink (to_root ^ "trees/" ^ (tree_of_commit hash))
+  let scaff = TreeHash (tree_of_commit hash) in
+  symlink_to_scaff scaff depth
 
 let fh_data = Hashtbl.create 16
 let fh_by_name = Hashtbl.create 16
