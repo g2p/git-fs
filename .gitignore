@@ -7,10 +7,10 @@
 /.omakedb.lock
 /OMakefile.omc
 /OMakeroot.omc
-/sifter
+/git-fs
 /sifter.cmi
 /sifter.cmo
 /sifter.cmx
 /sifter.o
-/sifter.opt
-/sifter.run
+/git-fs.opt
+/git-fs.run

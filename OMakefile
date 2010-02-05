@@ -55,7 +55,7 @@ OCAMLFLAGS    += -thread
 FILES[] =
     sifter
 
-PROGRAM = sifter
+PROGRAM = git-fs
 # OCAML_LIBS +=
 # OCAML_CLIBS +=
 OCAML_OTHER_LIBS += Fuse
