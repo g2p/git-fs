@@ -1,6 +1,8 @@
 
 Support symlinks inside the worktree.
 Remove the base64 refnames hack.
+Add a default mountpoint, and be singleton on that. Needs tweaking the fuse
+option parsing if we also want to accept fuse mount options.
 Map more stuff.
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 
