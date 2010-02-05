@@ -378,7 +378,6 @@ let do_fopen path flags =
     match scaff with
     |PlainBlob _ -> Some fh
     |ExeBlob _ -> Some fh
-    |OtherHash _ -> Some fh
     |CommitMsg _ -> Some fh
     (* |Symlink _ -> () *) (* our symlinks all point to directories *)
     (* XXX Maybe introduce different symlinks for our hashlinks
@@ -394,16 +393,18 @@ let do_fopen path flags =
 let do_read path buf ofs fh =
   try
     let scaff = lookup_fh fh in ignore scaff;
-    let hash = match scaff with
-    |PlainBlob hash -> hash
-    |ExeBlob hash -> hash
-    |_ -> failwith "Not a blob"
-    in
-    let did_read_len =
-      subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf in
-    did_read_len
-  with Not_found ->
-    raise (Unix.Unix_error (Unix.ENOENT, "read", path))
+    match scaff with
+    |PlainBlob hash ->
+        subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
+    |ExeBlob hash ->
+        subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
+    |CommitMsg hash ->
+        (* Not exactly the raw message, but there's no api to get it.
+         * %s and %b don't go far. There's rewrapping and stuff. *)
+        subprocess_read_bigarray_git [ "log"; "--max-count=1"; hash; ] ofs buf
+    |_ -> assert false (* we filtered at fopen time *)
+    with Not_found ->
+      raise (Unix.Unix_error (Unix.ENOENT, "read", path))
 
 let _ =
   git_dir_r := trim_endline (backtick "git rev-parse --git-dir");
