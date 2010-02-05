@@ -1,11 +1,18 @@
 
 Known dependencies:
 
-    sudo aptitude install omake \
-      liblwt-ocaml-dev libreact-ocaml-dev libpcre-ocaml-dev libounit-ocaml-dev
+    sudo aptitude install omake libbatteries-ocaml-dev
 
-Needs lwt 2.0.0 exactly.
-Older doesn't have the syntax extension; current darcs has a get_while bug.
+Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
 
-Get lwt, ocamlfuse, ocaml-git from source.
+http://sf.net/projects/ocamlfuse/files/ocamlfuse/2.7/ocamlfuse-2.7-1.tar.gz/download
+sha256sum ocamlfuse-2.7-1.tar.gz
+c68eebae24a22ac5bd8394d3a5534b5411f10f9444f2d3bc8a8aabc40bb0e4be  ocamlfuse-2.7-1.tar.gz
+
+Unpack ocamlfuse to a folder called (or symlinked) ocamlfuse.
+
+Build:
+
+    make -C ocamlfuse/lib
+    omake
 
