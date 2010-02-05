@@ -14,7 +14,6 @@ let require_normal_exit out_pipe =
 (* Going through the shell is evil/ugly,
  * but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
-(* XXX Can't have the exit status AFAICT (didn't read the source) *)
 let backtick shell_cmd =
   prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
   let out_pipe = BatUnix.open_process_in shell_cmd in
