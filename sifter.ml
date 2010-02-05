@@ -144,6 +144,9 @@ let ref_names () =
    * These backslashes are the reason system() is evil and kills kittens.
    *
    * Because BatUnix calls system, we have shell code potentially everywhere.
+   *
+   * This result shouldn't be cached, unlike most of the git data model
+   * it's not a functional data structure and may mutate.
    *)
   List.map trim_endline (
     BatString.nsplit (
@@ -237,7 +240,7 @@ let scaffolding_child scaff child =
   (*|RefScaff name when child = "reflog" -> ReflogScaff name*)
   |RefScaff name -> raise Not_found
   |CommitHash hash when child = "msg" -> CommitMsg hash
-  |CommitHash hash when child = "parents" -> CommitParents hash
+  (*|CommitHash hash when child = "parents" -> CommitParents hash*) (* XXX *)
   |CommitHash hash when child = "worktree" ->
       tree_symlink_of_commit hash (depth_of_scaff scaff)
   |CommitHash _ -> raise Not_found
@@ -314,10 +317,13 @@ let do_getattr path =
     |CommitHash _ -> dir_stats
     |RefScaff _ -> dir_stats
     |CommitParents _ -> dir_stats
-    |PlainBlob _ -> file_stats
+
     |ExeBlob _ -> exe_stats
+
+    |PlainBlob _ -> file_stats
     |OtherHash _ -> file_stats
     |CommitMsg _ -> file_stats
+
     |Symlink _ -> symlink_stats
     with Not_found ->
       raise (Unix_error (ENOENT, "stat", path))
@@ -326,7 +332,17 @@ let do_opendir path flags =
   (*prerr_endline ("Path is: " ^ path);*)
   try
     let fh, scaff = lookup_and_cache path in
-    Some fh
+    let r = Some fh in
+    match scaff with
+    |RootScaff -> r
+    |TreesScaff -> r
+    |RefsScaff -> r
+    |CommitsScaff -> r
+    |TreeHash _ -> r
+    |CommitHash _ -> r
+    |RefScaff _ -> r
+    |CommitParents _ -> failwith "Not implemented"
+    |_ -> raise (Unix_error (EINVAL, "opendir (not a directory)", path))
   with Not_found ->
     raise (Unix_error (ENOENT, "opendir", path))
 
@@ -335,6 +351,7 @@ let do_readdir path fh =
     let scaff = lookup_fh fh in
     "."::".."::(list_children scaff)
   with Not_found ->
+    prerr_endline (Printf.sprintf "Can't readdir “%S”" path); flush_all ();
     if true then assert false (* because opendir passed *)
     else raise (Unix_error (ENOENT, "readdir", path))
 
