@@ -1,9 +1,7 @@
 (* vim: set tw=0 sw=2 ts=2 et : *)
 
-open Unix
-open LargeFile
-open Bigarray
-open Fuse
+(* I dislike opens, but struct labels would be ugly otherwise *)
+open Unix.LargeFile
 
 
 (* Run a command, return stdout data as a string *)
@@ -43,10 +41,10 @@ let subprocess_read_bigarray_git cmd offset big_array =
   subprocess_read_bigarray cmd_str offset big_array
 
 
-let dir_stats = LargeFile.stat "." (* XXX *)
+let dir_stats = Unix.LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
   st_nlink = 1;
-  st_kind = S_REG;
+  st_kind = Unix.S_REG;
   st_perm = 0o400;
   (* /proc uses zero, it works.
    * /sys uses 4k.
@@ -61,7 +59,7 @@ let exe_stats = { file_stats with
   st_perm = 0o500;
   }
 let symlink_stats = { file_stats with
-  st_kind = S_LNK;
+  st_kind = Unix.S_LNK;
   }
 
 
@@ -326,7 +324,7 @@ let do_getattr path =
 
     |Symlink _ -> symlink_stats
     with Not_found ->
-      raise (Unix_error (ENOENT, "stat", path))
+      raise (Unix.Unix_error (Unix.ENOENT, "stat", path))
 
 let do_opendir path flags =
   (*prerr_endline ("Path is: " ^ path);*)
@@ -342,9 +340,9 @@ let do_opendir path flags =
     |CommitHash _ -> r
     |RefScaff _ -> r
     |CommitParents _ -> failwith "Not implemented"
-    |_ -> raise (Unix_error (EINVAL, "opendir (not a directory)", path))
+    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "opendir (not a directory)", path))
   with Not_found ->
-    raise (Unix_error (ENOENT, "opendir", path))
+    raise (Unix.Unix_error (Unix.ENOENT, "opendir", path))
 
 let do_readdir path fh =
   try
@@ -353,16 +351,16 @@ let do_readdir path fh =
   with Not_found ->
     prerr_endline (Printf.sprintf "Can't readdir “%S”" path); flush_all ();
     if true then assert false (* because opendir passed *)
-    else raise (Unix_error (ENOENT, "readdir", path))
+    else raise (Unix.Unix_error (Unix.ENOENT, "readdir", path))
 
 let do_readlink path =
   try
     let fh, scaff = lookup_and_cache path in
     match scaff with
     |Symlink target -> target
-    |_ -> raise (Unix_error (EINVAL, "readlink (not a link)", path))
+    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a link)", path))
   with Not_found ->
-    raise (Unix_error (ENOENT, "readlink", path))
+    raise (Unix.Unix_error (Unix.ENOENT, "readlink", path))
 
 
 let do_fopen path flags =
@@ -376,9 +374,9 @@ let do_fopen path flags =
     (* |Symlink _ -> () *) (* our symlinks all point to directories *)
     (* XXX Maybe introduce different symlinks for our hashlinks
      * and the symlinks git repos can contain. *)
-    |_ -> raise (Unix_error (EINVAL, "fopen (not a file)", path))
+    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
   with Not_found ->
-    raise (Unix_error (ENOENT, "fopen", path))
+    raise (Unix.Unix_error (Unix.ENOENT, "fopen", path))
 
 (* Read file data into a Bigarray.Array1.
  *
@@ -396,17 +394,17 @@ let do_read path buf ofs fh =
       subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf in
     did_read_len
   with Not_found ->
-    raise (Unix_error (ENOENT, "read", path))
+    raise (Unix.Unix_error (Unix.ENOENT, "read", path))
 
 let _ =
-  main Sys.argv
+  Fuse.main Sys.argv
     {
-      default_operations with
-        getattr = do_getattr;
-        opendir = do_opendir;
-        readdir = do_readdir;
-        readlink = do_readlink;
-        fopen = do_fopen;
-        read = do_read;
+      Fuse.default_operations with
+        Fuse.getattr = do_getattr;
+        Fuse.opendir = do_opendir;
+        Fuse.readdir = do_readdir;
+        Fuse.readlink = do_readlink;
+        Fuse.fopen = do_fopen;
+        Fuse.read = do_read;
     }
 
