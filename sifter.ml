@@ -8,10 +8,15 @@ open Unix.LargeFile
 (* Going through the shell is evil/ugly,
  * but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
+(* XXX Can't have the exit status AFAICT (didn't read the source) *)
 let backtick shell_cmd =
   prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
   let out_pipe = BatUnix.open_process_in shell_cmd in
-  BatIO.read_all out_pipe
+  let r = BatIO.read_all out_pipe in
+  let status = BatUnix.close_process_in out_pipe in
+  if status <> Unix.WEXITED 0
+  then failwith "Non-zero exit status"
+  else r
 
 (* Run a command, read the output into a BigArray.Array1.
  *)
@@ -22,22 +27,26 @@ let subprocess_read_bigarray shell_cmd offset big_array =
   (* Can't seek a pipe. Read and ignore. *)
   (* XXX lossy int64 conversion *)
   ignore (BatIO.really_nread out_pipe (Int64.to_int offset));
-    (* Returns how much was read, may raise. *)
-    Unix_util.read out_fd big_array
+  (* Returns how much was read, may raise. *)
+  let r = Unix_util.read out_fd big_array in
+  let status = BatUnix.close_process_in out_pipe in
+  if status <> Unix.WEXITED 0
+  then failwith "Non-zero exit status"
+  else r
 
 
 let trim_endline str =
   (* XXX not what the spec says, this trims both ends *)
   BatString.trim str
 
-let git_dir = "/home/g2p/var/co/git/ocaml-git/.git"
+let git_dir_r = ref "" (* XXX Ugly global *)
 
 let backtick_git cmd =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::!git_dir_r::cmd) in
   backtick cmd_str
 
 let subprocess_read_bigarray_git cmd offset big_array =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::!git_dir_r::cmd) in
   subprocess_read_bigarray cmd_str offset big_array
 
 
@@ -397,6 +406,7 @@ let do_read path buf ofs fh =
     raise (Unix.Unix_error (Unix.ENOENT, "read", path))
 
 let _ =
+  git_dir_r := trim_endline (backtick "git rev-parse --git-dir");
   Fuse.main Sys.argv
     {
       Fuse.default_operations with
