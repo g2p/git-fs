@@ -50,3 +50,19 @@ for the low-level binding.
 (nb: consider making inode<->hash bijective.
 caveat: that will look like directory hardlinks.)
 
+== How to bypass the command-line git api?
+
+This api costs, in terms of fork/malloc/die and a few impedance mismatches.
+
+libgit.a isn't stable, but we could use it.
+We still have to be careful what we used (globals, leaks).
+Consider killing it periodically so that memory won't grow.
+I believe cgit has more useable stuff on top of libgit.a .
+
+libgit2 might be useful someday,
+but it is currently very skeletal.
+
+A fast-import parser to memory structures could also work, but costs
+memory as opposed to a library using zero-copy.
+
+
