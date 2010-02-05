@@ -131,6 +131,16 @@ let reslash s =
   (*prerr_endline (Printf.sprintf "Decoding into “%S”" r);*)
   r
 
+let hashtable_keys htbl =
+  let acc = ref [] in
+  Hashtbl.iter (fun k v -> acc := k::!acc) htbl;
+  !acc
+
+let known_commit_hashes_ = ref BatSet.StringSet.empty
+
+let known_commit_hashes () =
+  BatSet.StringSet.elements !known_commit_hashes_
+
 let commit_of_ref ref =
   (*
   let opts = `BoolOpt ("hash", true) :: `BoolOpt ("verify", true) :: `Bare ref
@@ -138,7 +148,9 @@ let commit_of_ref ref =
   let stdout s = s in
   wait_on_monad (repo#git#exec ~stdout "show-ref" opts);
   *)
-  trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ])
+  let r = trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ]) in
+  known_commit_hashes_ := BatSet.StringSet.add r !known_commit_hashes_;
+  r
 
 let tree_of_commit_with_prefix hash prefix =
   (* prefix should be empty or a relative path with no initial slash
@@ -193,7 +205,7 @@ let tree_children_uncached hash =
       in (name, scaff)::(parse lines (Str.match_end ()))
   in parse lines 0
 
-let tree_children, known_hashes =
+let tree_children, known_tree_hashes =
   let children_cache = Hashtbl.create 16
   in let tree_children hash =
     try
@@ -202,11 +214,9 @@ let tree_children, known_hashes =
       let children = tree_children_uncached hash in
       Hashtbl.add children_cache hash children;
       children
-  and known_hashes () =
-    let acc = ref [] in
-    Hashtbl.iter (fun k v -> acc := k::!acc) children_cache;
-    !acc
-  in tree_children, known_hashes
+  and known_tree_hashes () =
+    hashtable_keys children_cache
+  in tree_children, known_tree_hashes
 
 let tree_child hash child =
   List.assoc child (tree_children hash)
@@ -245,11 +255,11 @@ let scaffolding_child scaff child =
 let list_children = function
   |RootScaff -> List.map fst root_al
   |TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
-      known_hashes ()
+      known_tree_hashes ()
+  |CommitsScaff -> known_commit_hashes () (* Not complete either. *)
   |RefsScaff -> let heads = wait_on_monad (repo#heads ()) in
    List.map (fun (n, h) -> slash_free (trim_endline n)) heads
   |RefScaff name -> [ "current"; (*"reflog";*) ]
-  |CommitsScaff -> [] (* XXX *)
   |TreeHash hash -> tree_children_names hash
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> raise Not_found
