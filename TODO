@@ -1,0 +1,14 @@
+
+Support symlinks inside the worktree.
+Remove the base64 refnames hack.
+Map more stuff.
+Elucidate the stat st_size stuff; fuse sounds like it relies on it.
+
+Get a library to access the repo without fork/malloc/die cycles
+that cost (in memory latency? whatever, it's very slow).
+Also consider getting rid of the file-at-once requirement;
+things like libmagic need much less.
+
+There are a ton of perf tweaks we could do, but they are dwarfed by
+the library stuff so I won't mention them.
+
