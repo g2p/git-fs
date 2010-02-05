@@ -1,7 +1,9 @@
 (* vim: set tw=0 sw=2 ts=2 et : *)
 
-(* I dislike opens, but struct labels would be ugly otherwise *)
-open Unix.LargeFile
+(* Isn't there a simpler syntax? *)
+module UL = struct
+  include Unix.LargeFile
+end
 
 let require_normal_exit out_pipe =
   let status = BatUnix.close_process_in out_pipe in
@@ -52,23 +54,23 @@ let subprocess_read_bigarray_git cmd offset big_array =
 
 let dir_stats = Unix.LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
-  st_nlink = 1;
-  st_kind = Unix.S_REG;
-  st_perm = 0o400;
+  UL.st_nlink = 1;
+  UL.st_kind = Unix.S_REG;
+  UL.st_perm = 0o400;
   (* /proc uses zero, it works.
    * /sys uses 4k.
    * zero doesn't work with fuse, at least high-level fuse.
    * (unless it's cat acting up, but proc indicates otherwise.
    * strace cat with 0 size someday)
    *)
-  (*st_size = Int64.zero;*)
-  st_size = Int64.of_int 4096;
+  (*UL.st_size = Int64.zero;*)
+  UL.st_size = Int64.of_int 4096;
   }
 let exe_stats = { file_stats with
-  st_perm = 0o500;
+  UL.st_perm = 0o500;
   }
 let symlink_stats = { file_stats with
-  st_kind = Unix.S_LNK;
+  UL.st_kind = Unix.S_LNK;
   }
 
 
