@@ -17,12 +17,8 @@ USE_OCAMLFIND = true
 OCAMLPACKS[] =
    batteries
    bigarray
-   threads
-   git
-   lwt.syntax
 
-# Enable syntax processing. lwt.syntax adds some.
-OCAMLFINDFLAGS = -syntax camlp4o
+#OCAMLFINDFLAGS =
 
 if $(not $(OCAMLFIND_EXISTS))
    eprintln(This project requires ocamlfind, but is was not found.)

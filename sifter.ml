@@ -6,12 +6,6 @@ open Bigarray
 open Fuse
 
 
-(* lwt would sprinkle this module with monads everywhere, nip it in the bud. *)
-let wait_on_monad monad =
-  (* let waiter, wakener = Lwt.wait () in *)
-  (* XXX Lwt_main.run not thread-safe. Or just not reentrant, which is OK. *)
-  Lwt_main.run monad
-
 (* Run a command, return stdout data as a string *)
 (* Going through the shell is evil/ugly,
  * but I didn't find a non system()-based api *)
@@ -22,10 +16,6 @@ let backtick shell_cmd =
   BatIO.read_all out_pipe
 
 (* Run a command, read the output into a BigArray.Array1.
- *
- * This Bigarray api is supposedly efficient, but inconvenient
- * for us without dropping to C code (see ocamlfuse/lib/Util_unix_stub.c ).
- *
  *)
 let subprocess_read_bigarray shell_cmd offset big_array =
   prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
@@ -42,10 +32,7 @@ let trim_endline str =
   (* XXX not what the spec says, this trims both ends *)
   BatString.trim str
 
-let git_wt = "/home/g2p/var/co/git/ocaml-git" (* XXX *)
-let git_dir = git_wt ^ "/.git"
-
-let repo = wait_on_monad (Git.Repo.repo git_wt)
+let git_dir = "/home/g2p/var/co/git/ocaml-git/.git"
 
 let backtick_git cmd =
   let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
@@ -142,12 +129,6 @@ let known_commit_hashes () =
   BatSet.StringSet.elements !known_commit_hashes_
 
 let commit_of_ref ref =
-  (*
-  let opts = `BoolOpt ("hash", true) :: `BoolOpt ("verify", true) :: `Bare ref
-  :: [] in
-  let stdout s = s in
-  wait_on_monad (repo#git#exec ~stdout "show-ref" opts);
-  *)
   let r = trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ]) in
   known_commit_hashes_ := BatSet.StringSet.add r !known_commit_hashes_;
   r
@@ -157,6 +138,19 @@ let tree_of_commit_with_prefix hash prefix =
    * and no . or .. *)
   trim_endline (backtick_git [ "rev-parse"; "--revs-only"; "--no-flags";
   "--verify"; "--quiet"; hash ^ "^{tree}" ^ ":" ^ prefix ])
+
+let ref_names () =
+  (**
+   * These backslashes are the reason system() is evil and kills kittens.
+   *
+   * Because BatUnix calls system, we have shell code potentially everywhere.
+   *)
+  List.map trim_endline (
+    BatString.nsplit (
+      backtick_git [ "for-each-ref"; "--format"; "%\\(refname\\)"; ]
+      )
+    "\n"
+    )
 
 let tree_of_commit hash =
   tree_of_commit_with_prefix hash ""
@@ -257,8 +251,8 @@ let list_children = function
   |TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
       known_tree_hashes ()
   |CommitsScaff -> known_commit_hashes () (* Not complete either. *)
-  |RefsScaff -> let heads = wait_on_monad (repo#heads ()) in
-   List.map (fun (n, h) -> slash_free (trim_endline n)) heads
+  |RefsScaff ->
+   List.map slash_free (ref_names ())
   |RefScaff name -> [ "current"; (*"reflog";*) ]
   |TreeHash hash -> tree_children_names hash
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
