@@ -265,7 +265,7 @@ let list_children = function
    List.map slash_free (ref_names ())
   |RefScaff name -> [ "current"; (*"reflog";*) ]
   |TreeHash hash -> tree_children_names hash
-  |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
+  |CommitHash _ -> [ "msg"; "worktree"; (*"parents";*) ]
   |PlainBlob _ -> raise Not_found
   |ExeBlob _ -> raise Not_found
   |OtherHash _ -> raise Not_found
