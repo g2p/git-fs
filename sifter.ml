@@ -3,6 +3,10 @@
 (* I dislike opens, but struct labels would be ugly otherwise *)
 open Unix.LargeFile
 
+let require_normal_exit out_pipe =
+  let status = BatUnix.close_process_in out_pipe in
+  if status <> Unix.WEXITED 0
+  then failwith "Non-zero exit status"
 
 (* Run a command, return stdout data as a string *)
 (* Going through the shell is evil/ugly,
@@ -13,10 +17,8 @@ let backtick shell_cmd =
   prerr_endline (Printf.sprintf "Command “%S”" shell_cmd); flush_all ();
   let out_pipe = BatUnix.open_process_in shell_cmd in
   let r = BatIO.read_all out_pipe in
-  let status = BatUnix.close_process_in out_pipe in
-  if status <> Unix.WEXITED 0
-  then failwith "Non-zero exit status"
-  else r
+  require_normal_exit out_pipe;
+  r
 
 (* Run a command, read the output into a BigArray.Array1.
  *)
@@ -29,10 +31,8 @@ let subprocess_read_bigarray shell_cmd offset big_array =
   ignore (BatIO.really_nread out_pipe (Int64.to_int offset));
   (* Returns how much was read, may raise. *)
   let r = Unix_util.read out_fd big_array in
-  let status = BatUnix.close_process_in out_pipe in
-  if status <> Unix.WEXITED 0
-  then failwith "Non-zero exit status"
-  else r
+  require_normal_exit out_pipe;
+  r
 
 
 let trim_endline str =
