@@ -3,14 +3,14 @@ Full view of the git filesystem.
 
 Name:
 git in (get in)
-git sift
+git sift (nah, this means filtering not browsing)
 git fs (gitfs is taken (twice), git-fs isn't)
 
 Idea: shallower hierarchy with xattrs?
 eg reflog messages
 
 $GIT_DIR/
-  sifter/
+  fs/
 
 branches/ -- git branch -a -- subset of all git refs, only {heads,remotes}
   master/

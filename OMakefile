@@ -53,7 +53,7 @@ OCAMLFLAGS    += -thread
 #
 
 FILES[] =
-    sifter
+    git_fs
 
 PROGRAM = git-fs
 # OCAML_LIBS +=

@@ -8,9 +8,9 @@
 /OMakefile.omc
 /OMakeroot.omc
 /git-fs
-/sifter.cmi
-/sifter.cmo
-/sifter.cmx
-/sifter.o
+/git_fs.cmi
+/git_fs.cmo
+/git_fs.cmx
+/git_fs.o
 /git-fs.opt
 /git-fs.run
