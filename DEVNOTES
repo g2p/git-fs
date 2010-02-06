@@ -65,4 +65,13 @@ but it is currently very skeletal.
 A fast-import parser to memory structures could also work, but costs
 memory as opposed to a library using zero-copy.
 
+== Do we support refs not starting with refs/ ?
+
+Those can be created by editing $GIT_DIR/packed-refs.
+They work nearly everywhere,
+  * check-ref-format accepts them
+  * show-ref --verify refuses them
+
+Since they are refused in at least one place -> consider not supporting them.
+That means we get to collapse the fs/refs/ hierarchy to one level shallower.
 

@@ -181,6 +181,8 @@ let root_al () = [
   "trees", TreesScaff;
   "refs", RefsScaff ("", ref_tree ());
   "commits", CommitsScaff;
+  "heads", Symlink "refs/refs/heads";
+  "remotes", Symlink "refs/refs/remotes";
   ]
 
 
