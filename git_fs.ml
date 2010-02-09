@@ -471,32 +471,49 @@ let fuse_ops = {
 let mountpoint_lazy =
   lazy (let lazy git_dir = git_dir_lazy in git_dir ^ "/fs")
 
-let mount () =
+let abspath path =
+  if not (Filename.is_relative path) then path
+  else (Unix.getcwd ()) ^ "/" ^ path
+
+let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
+  let lazy git_dir = git_dir_lazy in
+  (* fuse doesn't guess the subtype if we give it fsname *)
+  let subtype = Filename.basename Sys.argv.(0) in
   try Unix.mkdir mountpoint 0o0755
   with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
   prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
-  let fuse_args = [| Sys.argv.(0); "-f"; mountpoint |] in
+  let fuse_args = [|
+    subtype; "-f"; "-oro";
+    "-osubtype=" ^ subtype;
+    "-ofsname=" ^ (abspath git_dir); (* XXX needs ","-quoting *)
+    mountpoint;
+    |] in
   Fuse.main fuse_args fuse_ops
 
-let umount () =
+let cmd_umount () =
   let lazy mountpoint = mountpoint_lazy in
   ignore (backtick ("fusermount -u -- " ^ mountpoint))
 
+let cmd_show_mountpoint () =
+  let lazy mountpoint = mountpoint_lazy in
+  print_endline mountpoint
+
 let usage () =
-  prerr_endline "Usage: git fs [mount|umount|help]"
+  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|help]"
 
-let help = usage
+let cmd_help = usage
 
-let fuse_help () =
+let cmd_fuse_help () =
   Fuse.main [| Sys.argv.(0); "--help"; |] fuse_ops
 
 let _ =
   match Sys.argv with
-  |[| _; |] -> mount ()
-  |[| _; "mount"; |] -> mount ()
-  |[| _; "umount"; |] -> umount ()
-  |[| _; "help"; |] -> help ()
-  |[| _; "fuse-help"; |] -> fuse_help () (* For developer use *)
+  |[| _; |] -> cmd_mount ()
+  |[| _; "mount"; |] -> cmd_mount ()
+  |[| _; "umount"; |] -> cmd_umount ()
+  |[| _; "show-mountpoint"; |] -> cmd_show_mountpoint ()
+  |[| _; "help"; |] -> cmd_help ()
+  |[| _; "fuse-help"; |] -> cmd_fuse_help () (* For developer use *)
   |_ -> begin usage (); exit 2; end
 
