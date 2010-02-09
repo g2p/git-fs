@@ -12,7 +12,7 @@ let require_normal_exit out_pipe =
 
 (* Run a command, return stdout data as a string *)
 (* Going through the shell is evil/ugly,
- * but I didn't find a non system()-based api *)
+   but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
 let backtick shell_cmd =
   prerr_endline (Printf.sprintf "Command %S" shell_cmd);
@@ -21,8 +21,7 @@ let backtick shell_cmd =
   require_normal_exit out_pipe;
   r
 
-(* Run a command, read the output into a BigArray.Array1.
- *)
+(* Run a command, read the output into a BigArray.Array1. *)
 let subprocess_read_bigarray shell_cmd offset big_array =
   prerr_endline (Printf.sprintf "Command %S" shell_cmd);
   let out_pipe = BatUnix.open_process_in shell_cmd in
@@ -149,6 +148,23 @@ let commit_parents hash =
     known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
     r;
   r
+
+let commit_parents_pretty_names hash =
+  match commit_parents hash with
+  |[] -> []
+  |p0::tl -> (hash ^ "^")::(BatList.mapi (fun i h ->
+      hash ^ "^" ^ (string_of_int (i+1)))
+      tl)
+
+let parent_symlink merged parent_id depth =
+  let fail () = failwith (Printf.sprintf
+        "%S has incorrect syntax for a parent of %S" parent_id merged) in
+  if not (BatString.starts_with parent_id (merged ^ "^")) then fail ();
+  let suffix = BatString.tail parent_id 41 in
+  prerr_endline suffix;
+  let parent_idx = if suffix = "" then 0 else int_of_string suffix in
+  let hash = List.nth (commit_parents merged) parent_idx in
+  symlink_to_scaff (CommitHash hash) depth
 
 let ref_names () =
   (**
@@ -290,7 +306,9 @@ let scaffolding_child scaff child =
       tree_symlink_of_commit hash 2
   |CommitHash _ -> raise Not_found
   |CommitMsg _ -> raise Not_found
-  |CommitParents hash -> symlink_to_scaff (CommitHash child) 3
+  |CommitParents hash ->
+      (* here, child confusingly means parent in git semantics *)
+      parent_symlink hash child 3
   |Symlink _ -> raise Not_found
 
 let list_children = function
@@ -306,7 +324,7 @@ let list_children = function
   |PlainBlob _ -> failwith "Plain file"
   |ExeBlob _ -> failwith "Plain file"
   |CommitMsg _ -> failwith "Plain file"
-  |CommitParents hash -> commit_parents hash
+  |CommitParents hash -> commit_parents_pretty_names hash
   |Symlink _ -> raise Not_found
 
 
@@ -422,9 +440,9 @@ let do_fopen path flags =
     raise (Unix.Unix_error (Unix.ENOENT, "fopen", path))
 
 (* Read file data into a Bigarray.Array1.
- *
- * libfuse-ocaml takes a string, making it simpler than ocamlfuse.
- *)
+
+   libfuse-ocaml takes a string, making it simpler than ocamlfuse.
+   *)
 let do_read path buf ofs fh =
   try
     let scaff = lookup_fh fh in ignore scaff;
