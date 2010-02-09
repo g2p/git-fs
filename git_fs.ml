@@ -493,7 +493,10 @@ let cmd_mount () =
 
 let cmd_umount () =
   let lazy mountpoint = mountpoint_lazy in
-  ignore (backtick ("fusermount -u -- " ^ mountpoint))
+  try
+    ignore (backtick ("fusermount -u -- " ^ mountpoint))
+  with
+    Failure "Non-zero exit status" -> ()
 
 let cmd_show_mountpoint () =
   let lazy mountpoint = mountpoint_lazy in
