@@ -40,14 +40,20 @@ let trim_endline str =
   (* XXX not what the spec says, this trims both ends *)
   BatString.trim str
 
-let git_dir_r = ref "" (* XXX Ugly global *)
+let git_dir_lazy = lazy (
+  let r = trim_endline (backtick "git rev-parse --git-dir")
+  in if r <> "" then r else failwith "Git directory not found."
+)
+
+let git_dir () =
+  Lazy.force git_dir_lazy
 
 let backtick_git cmd =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::!git_dir_r::cmd) in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::(git_dir ())::cmd) in
   backtick cmd_str
 
 let subprocess_read_bigarray_git cmd offset big_array =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::!git_dir_r::cmd) in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::(git_dir ())::cmd) in
   subprocess_read_bigarray cmd_str offset big_array
 
 
@@ -159,11 +165,12 @@ let rec ref_tree_add tree path =
   |_, [] -> failwith "Can't make an internal node into a leaf"
   |((name, RefTreeInternalNode grand_children)::children_tl), name_::tl
   when name = name_ ->
-      ((name, RefTreeInternalNode (ref_tree_add grand_children tl))::children_tl)
+    (name, RefTreeInternalNode (ref_tree_add grand_children tl)
+      )::children_tl
   |children, name::[] -> (* sort order *)
-      ((name, RefTreeLeaf)::children)
+      (name, RefTreeLeaf)::children
   |children, name::tl -> (* sort order *)
-      ((name, RefTreeInternalNode (ref_tree_add [] tl))::children)
+      (name, RefTreeInternalNode (ref_tree_add [] tl))::children
 
 let ref_tree () =
   let refs = ref_names () in
@@ -427,8 +434,13 @@ let do_read path buf ofs fh =
       raise (Unix.Unix_error (Unix.ENOENT, "read", path))
 
 let _ =
-  git_dir_r := trim_endline (backtick "git rev-parse --git-dir");
-  Fuse.main Sys.argv
+  if Array.length Sys.argv <> 1 then failwith "git-fs takes no arguments";
+  let mount_point = (git_dir ()) ^ "/fs" in
+  try Unix.mkdir mount_point 0o0755
+  with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
+  prerr_endline (Printf.sprintf "Mounting on %S" mount_point);
+  let fuse_args = [| Sys.argv.(0); "-f"; mount_point |] in
+  Fuse.main fuse_args
     {
       Fuse.default_operations with
         Fuse.getattr = do_getattr;
