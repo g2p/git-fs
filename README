@@ -1,7 +1,7 @@
 
 git-fs lets you access the git filesystem as a normal filesystem.
 
-Currently it lets you browse branches and worktrees.
+Currently it lets you browse branches, commits and worktrees.
 
 Known dependencies:
 
@@ -22,15 +22,20 @@ Build:
 
 Usage:
 
-    ./git-fs
-    cd .git/fs/heads/master/current/worktree
+    ./git-fs mount
+    cd .git/fs/heads/master/worktree
     cat README
+    ./git-fs umount
 
 Install (~/bin must be in your path):
 
     ln -s ~+/git-fs -t ~/bin
 
 git-fs can now be invoked as:
+
+    git fs mount
+
+Or the shorter:
 
     git fs
 

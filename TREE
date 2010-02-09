@@ -33,9 +33,6 @@ tags/ -- git tag -l
     REF (name)
 commits/
   COMMIT (hash)/
-worktrees/
-  -- a worktree is a tree linked from a commit. How could we tell? Drop it.
-  HASH
 trees/
   HASH
 index/

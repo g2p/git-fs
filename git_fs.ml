@@ -297,6 +297,8 @@ let scaffolding_child scaff child =
   |TreeHash hash -> tree_child hash child
   |RefScaff name when child = "current" ->
       commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
+  |RefScaff name when child = "worktree" ->
+      Symlink "current/worktree"
   (*|RefScaff name when child = "reflog" -> ReflogScaff name*)
   |RefScaff name -> raise Not_found
   |CommitHash hash when child = "msg" -> CommitMsg hash
@@ -317,7 +319,7 @@ let list_children = function
   |CommitsScaff -> known_commit_hashes () (* Not complete either. *)
   |RefsScaff (prefix, children) ->
       List.map fst children
-  |RefScaff name -> [ "current"; (*"reflog";*) ]
+  |RefScaff name -> [ "current"; "worktree"; (*"reflog";*) ]
   |TreeHash hash -> tree_children_names hash
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> failwith "Plain file"
