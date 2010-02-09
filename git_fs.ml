@@ -142,6 +142,14 @@ let tree_of_commit_with_prefix hash prefix =
   trim_endline (backtick_git [ "rev-parse"; "--revs-only"; "--no-flags";
   "--verify"; "--quiet"; hash ^ "^{tree}" ^ ":" ^ prefix ])
 
+let commit_parents hash =
+  let r = BatString.nsplit (backtick_git
+    [ "log"; "-n1"; "--format=format:'%P'"; hash; ]) " "
+  in List.iter (fun h ->
+    known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
+    r;
+  r
+
 let ref_names () =
   (**
    * These backslashes are the reason system() is evil and kills kittens.
@@ -282,7 +290,7 @@ let scaffolding_child scaff child =
       tree_symlink_of_commit hash 2
   |CommitHash _ -> raise Not_found
   |CommitMsg _ -> raise Not_found
-  |CommitParents _ -> raise Not_found
+  |CommitParents hash -> symlink_to_scaff (CommitHash child) 3
   |Symlink _ -> raise Not_found
 
 let list_children = function
@@ -298,7 +306,7 @@ let list_children = function
   |PlainBlob _ -> failwith "Plain file"
   |ExeBlob _ -> failwith "Plain file"
   |CommitMsg _ -> failwith "Plain file"
-  |CommitParents _ -> [] (* XXX *)
+  |CommitParents hash -> commit_parents hash
   |Symlink _ -> raise Not_found
 
 
