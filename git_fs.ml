@@ -44,15 +44,14 @@ let git_dir_lazy = lazy (
   in if r <> "" then r else failwith "Git directory not found."
 )
 
-let git_dir () =
-  Lazy.force git_dir_lazy
-
 let backtick_git cmd =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::(git_dir ())::cmd) in
+  let lazy git_dir = git_dir_lazy in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
   backtick cmd_str
 
 let subprocess_read_bigarray_git cmd offset big_array =
-  let cmd_str = String.concat " " ("git"::"--git-dir"::(git_dir ())::cmd) in
+  let lazy git_dir = git_dir_lazy in
+  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
   subprocess_read_bigarray cmd_str offset big_array
 
 
@@ -459,15 +458,7 @@ let do_read path buf ofs fh =
     with Not_found ->
       raise (Unix.Unix_error (Unix.ENOENT, "read", path))
 
-let _ =
-  if Array.length Sys.argv <> 1 then failwith "git-fs takes no arguments";
-  let mount_point = (git_dir ()) ^ "/fs" in
-  try Unix.mkdir mount_point 0o0755
-  with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
-  prerr_endline (Printf.sprintf "Mounting on %S" mount_point);
-  let fuse_args = [| Sys.argv.(0); "-f"; mount_point |] in
-  Fuse.main fuse_args
-    {
+let fuse_ops = {
       Fuse.default_operations with
         Fuse.getattr = do_getattr;
         Fuse.opendir = do_opendir;
@@ -476,4 +467,36 @@ let _ =
         Fuse.fopen = do_fopen;
         Fuse.read = do_read;
     }
+
+let mountpoint_lazy =
+  lazy (let lazy git_dir = git_dir_lazy in git_dir ^ "/fs")
+
+let mount () =
+  let lazy mountpoint = mountpoint_lazy in
+  try Unix.mkdir mountpoint 0o0755
+  with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
+  prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
+  let fuse_args = [| Sys.argv.(0); "-f"; mountpoint |] in
+  Fuse.main fuse_args fuse_ops
+
+let umount () =
+  let lazy mountpoint = mountpoint_lazy in
+  ignore (backtick ("fusermount -u -- " ^ mountpoint))
+
+let usage () =
+  prerr_endline "Usage: git fs [mount|umount|help]"
+
+let help = usage
+
+let fuse_help () =
+  Fuse.main [| Sys.argv.(0); "--help"; |] fuse_ops
+
+let _ =
+  match Sys.argv with
+  |[| _; |] -> mount ()
+  |[| _; "mount"; |] -> mount ()
+  |[| _; "umount"; |] -> umount ()
+  |[| _; "help"; |] -> help ()
+  |[| _; "fuse-help"; |] -> fuse_help () (* For developer use *)
+  |_ -> begin usage (); exit 2; end
 
