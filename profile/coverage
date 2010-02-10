@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+exec >/dev/null 2>/dev/null
+./git-fs umount || true
+trap 'kill $pid' EXIT
+./git-fs mount & pid=$!
+cat "$(./git-fs show-mountpoint)"/heads/master/worktree/README || true
+cat "$(./git-fs show-mountpoint)"/heads/master/worktree/README
+tree -al "$(./git-fs show-mountpoint)"
+./git-fs umount
+./git-fs umount || true
+! ps -fp "$pid"
+

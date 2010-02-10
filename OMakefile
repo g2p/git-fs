@@ -1,6 +1,5 @@
 
-#OCAMLPACKS[] =
-#OCAMLFINDFLAGS =
+.PHONY: profile
 
 section
    vmount(-l, src, build)
@@ -12,3 +11,8 @@ section
    OCAMLFINDFLAGS += -syntax camlp4o
    .SUBDIRS: profile
 
+profile: profile/git-fs
+   # Some commands are here to exercise error paths.
+   cd profile && ./coverage && \
+   sh -c 'ocamlfind bisect/bisect-report bisect*.out -html report'
+   echo "Report available at profile/report/index.html"

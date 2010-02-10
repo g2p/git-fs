@@ -17,6 +17,7 @@
 /.omakedb.lock
 /OMakefile.omc
 /OMakeroot.omc
+/profile/bisect????.out
 /profile/git-fs
 /profile/git_fs.cmi
 /profile/git_fs.cmo
@@ -28,3 +29,4 @@
 /profile/git-fs.run
 /profile/OMakefile
 /profile/OMakefile.omc
+/profile/report
