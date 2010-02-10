@@ -514,11 +514,11 @@ let cmd_fuse_help () =
 
 let _ =
   match Sys.argv with
-  |[| _; |] -> cmd_mount ()
-  |[| _; "mount"; |] -> cmd_mount ()
-  |[| _; "umount"; |] -> cmd_umount ()
-  |[| _; "show-mountpoint"; |] -> cmd_show_mountpoint ()
-  |[| _; "help"; |] -> cmd_help ()
-  |[| _; "fuse-help"; |] -> cmd_fuse_help () (* For developer use *)
+  |[| _ |] -> cmd_mount ()
+  |[| _; "mount" |] -> cmd_mount ()
+  |[| _; "umount" |] -> cmd_umount ()
+  |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
+  |[| _; "help" |] -> cmd_help ()
+  |[| _; "fuse-help" |] -> cmd_fuse_help () (* For developer use *)
   |_ -> begin usage (); exit 2; end
 

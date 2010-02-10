@@ -1,65 +1,14 @@
-########################################################################
-# Phony targets are scoped, so you probably want to declare them first.
-#
 
-# .PHONY: all install clean
-
-########################################################################
-# Subdirectories.
-# You may want to include some subdirectories in this project.
-# If so, define the subdirectory targets and uncomment this section.
-#
-
-# .SUBDIRS:
-
-USE_OCAMLFIND = true
-
-OCAMLPACKS[] =
-   batteries
-   bigarray
-
+#OCAMLPACKS[] =
 #OCAMLFINDFLAGS =
 
-if $(not $(OCAMLFIND_EXISTS))
-   eprintln(This project requires ocamlfind, but is was not found.)
-   eprintln(You need to install ocamlfind and run "omake --configure".)
-   exit 1
+section
+   vmount(-l, src, build)
+   .SUBDIRS: build
 
-#
-# Include path
-#
-OCAMLINCLUDES += ocamlfuse/lib
-
-#
-# Compile native or byte code? 
-#
-# The default values are defined as follows:
-#
-# NATIVE_ENABLED = $(OCAMLOPT_EXISTS)
-# BYTE_ENABLED = $(not $(OCAMLOPT_EXISTS))
-
-#
-# Various options
-#
-OCAMLFLAGS    += -thread
-# OCAMLCFLAGS   +=
-# OCAMLOPTFLAGS +=
-# OCAML_LINK_FLAGS +=
-# OCAML_BYTE_LINK_FLAGS +=
-# OCAML_NATIVE_LINK_FLAGS +=
-
-################################################
-# Build an OCaml program
-#
-
-FILES[] =
-    git_fs
-
-PROGRAM = git-fs
-# OCAML_LIBS +=
-# OCAML_CLIBS +=
-OCAML_OTHER_LIBS += Fuse
-OCAML_LIB_FLAGS += -ccopt -Locamlfuse/lib
-
-.DEFAULT: $(OCamlProgram $(PROGRAM), $(FILES))
+section
+   vmount(-l, src, profile)
+   OCAMLPACKS[] += bisect
+   OCAMLFINDFLAGS += -syntax camlp4o
+   .SUBDIRS: profile
 
