@@ -54,6 +54,13 @@ let subprocess_read_bigarray_git cmd offset big_array =
   let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
   subprocess_read_bigarray cmd_str offset big_array
 
+let describe_tag hash =
+  () (* git cat-file tag demo-tag *)
+
+let symlink_target hash =
+  (* XXX may be abs or rel, and may go outside the worktree *)
+  backtick_git [ "cat-file"; "blob"; hash; ]
+
 
 let dir_stats = Unix.LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
@@ -91,7 +98,8 @@ type scaffolding =
   |RefsScaff of string * ref_tree_i
   |CommitsScaff
   |RefScaff of string
-  |Symlink of string
+  |FsSymlink of string
+  |WorktreeSymlink of hash
   |PlainBlob of hash
   |ExeBlob of hash
   |TreeHash of hash
@@ -117,7 +125,7 @@ let rec parents_depth depth =
 let symlink_to_scaff scaff depth =
   let path = canonical scaff in
   let to_root = parents_depth depth in
-  Symlink (to_root ^ path)
+  FsSymlink (to_root ^ path)
 
 let hashtable_keys htbl =
   let acc = ref [] in
@@ -211,9 +219,9 @@ let root_al () = [
   "trees", TreesScaff;
   "refs", RefsScaff ("", ref_tree ());
   "commits", CommitsScaff;
-  "heads", Symlink "refs/refs/heads";
-  "remotes", Symlink "refs/refs/remotes";
-  "tags", Symlink "refs/refs/tags";
+  "heads", FsSymlink "refs/refs/heads";
+  "remotes", FsSymlink "refs/refs/remotes";
+  "tags", FsSymlink "refs/refs/tags";
   ]
 
 
@@ -245,7 +253,7 @@ let prime_cache path scaff =
 
 let tree_children_uncached hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
-  let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
+  let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
   let rec parse lines offset =
     if String.length lines = offset then []
     else if not (Str.string_match rgx lines offset)
@@ -259,6 +267,7 @@ let tree_children_uncached hash =
       let scaff = match kind_s with
       |"100644 blob" -> PlainBlob hash
       |"100755 blob" -> ExeBlob hash
+      |"120000 blob" -> WorktreeSymlink hash
       |"040000 tree" -> TreeHash hash
       |_ -> assert false
       in (name, scaff)::(parse lines (Str.match_end ()))
@@ -299,7 +308,7 @@ let scaffolding_child scaff child =
   |RefScaff name when child = "current" ->
       commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
   |RefScaff name when child = "worktree" ->
-      Symlink "current/worktree"
+      FsSymlink "current/worktree"
   (*|RefScaff name when child = "reflog" -> ReflogScaff name*)
   |RefScaff name -> raise Not_found
   |CommitHash hash when child = "msg" -> CommitMsg hash
@@ -311,7 +320,8 @@ let scaffolding_child scaff child =
   |CommitParents hash ->
       (* here, child confusingly means parent in git semantics *)
       parent_symlink hash child 3
-  |Symlink _ -> raise Not_found
+  |FsSymlink _ -> raise Not_found
+  |WorktreeSymlink _ -> raise Not_found
 
 let list_children = function
   |RootScaff -> List.map fst (root_al ())
@@ -327,7 +337,8 @@ let list_children = function
   |ExeBlob _ -> failwith "Plain file"
   |CommitMsg _ -> failwith "Plain file"
   |CommitParents hash -> commit_parents_pretty_names hash
-  |Symlink _ -> raise Not_found
+  |FsSymlink _ -> failwith "Symlink"
+  |WorktreeSymlink _ -> failwith "Symlink" (* XXX I'm not sure *)
 
 
 let lookup scaff path =
@@ -386,7 +397,8 @@ let do_getattr path =
     |PlainBlob _ -> file_stats
     |CommitMsg _ -> file_stats
 
-    |Symlink _ -> symlink_stats
+    |FsSymlink _ -> symlink_stats
+    |WorktreeSymlink _ -> symlink_stats
     with Not_found ->
       raise (Unix.Unix_error (Unix.ENOENT, "stat", path))
 
@@ -421,7 +433,9 @@ let do_readlink path =
   try
     let fh, scaff = lookup_and_cache path in
     match scaff with
-    |Symlink target -> target
+    |FsSymlink target -> target
+    |WorktreeSymlink hash ->
+        symlink_target hash (* XXX: these are allowed to go outside the tree *)
     |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a link)", path))
   with Not_found ->
     raise (Unix.Unix_error (Unix.ENOENT, "readlink", path))
@@ -434,7 +448,7 @@ let do_fopen path flags =
     |PlainBlob _ -> Some fh
     |ExeBlob _ -> Some fh
     |CommitMsg _ -> Some fh
-    (* |Symlink _ -> () *) (* our symlinks all point to directories *)
+    (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
     (* XXX Maybe introduce different symlinks for our hashlinks
      * and the symlinks git repos can contain. *)
     |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))

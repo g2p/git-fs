@@ -1,6 +1,5 @@
 
-Support symlinks inside the worktree (find test case).
-Map more stuff (tag descriptions and signatures, reflog).
+Map more stuff (tags: descriptions, tagger and signatures; reflog).
 Get rid of system(); abstractions backed by shit and it's unsafe. Go the exec route, not the autoquote everything crap.
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 
@@ -17,4 +16,5 @@ the library stuff so I won't mention them.
 Remove the base64 refnames hack.
 Add a default mountpoint, and be singleton on that.
 Simplest possible tag support.
+Support symlinks inside the worktree.
 
