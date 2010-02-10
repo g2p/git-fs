@@ -16,3 +16,4 @@ profile: profile/git-fs
    cd profile && ./coverage && \
    sh -c 'ocamlfind bisect/bisect-report bisect*.out -html report'
    echo "Report available at profile/report/index.html"
+

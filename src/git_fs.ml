@@ -213,6 +213,7 @@ let root_al () = [
   "commits", CommitsScaff;
   "heads", Symlink "refs/refs/heads";
   "remotes", Symlink "refs/refs/remotes";
+  "tags", Symlink "refs/refs/tags";
   ]
 
 
