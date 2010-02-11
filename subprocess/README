@@ -1,0 +1,15 @@
+
+subprocess is a library for easy and safe subprocess invocation.
+
+Spawned subprocesses communicate in an evented fashion using libev.
+
+Safe means that no shell is invoked to run the commands.
+system and popen aren't called.
+
+Inspirations:
+
+node.js's process.ChildProcess (js/C++);
+python's subprocess module.
+
+
+

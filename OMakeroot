@@ -1,6 +1,7 @@
+open build/C
 open build/OCaml
 
 DefineCommandVars()
 
-.SUBDIRS: .
+.SUBDIRS: . subprocess
 

@@ -1,0 +1,22 @@
+
+CFLAGS += -ggdb3 -W -Wall -Werror
+# ASFLAGS +=
+LDFLAGS += -Wl,-rpath=$(PWD)/libev/.libs -lev
+# INCLUDES +=
+
+CFILES[] =
+    subprocess
+    subprocess-demo
+
+MAIN = subprocess-demo
+
+.DEFAULT: $(CProgram $(MAIN), $(CFILES))
+
+# LIBFILES[] =
+#    file1
+#    file2
+#
+# LIB = libxxx
+#
+# .DEFAULT: $(StaticCLibrary $(LIB), $(LIBFILES))
+

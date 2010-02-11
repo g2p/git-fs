@@ -1,0 +1,7 @@
+/.omakedb
+/.omakedb.lock
+/OMakefile.omc
+/OMakeroot.omc
+/subprocess-demo
+/subprocess-demo.o
+/subprocess.o
