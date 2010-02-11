@@ -1,3 +1,5 @@
+Figure out why it won't work in the background (ie, without fuse option -f).
+Unhelpfully, strace doesn't seem to work well in the background case.
 
 Map more stuff (tags: descriptions, tagger and signatures; reflog messages; HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD).
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
