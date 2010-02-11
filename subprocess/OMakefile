@@ -1,5 +1,5 @@
 
-CFLAGS += -W -Wall -Werror
+CFLAGS += -Wall -Wextra -Werror
 # ASFLAGS +=
 LDFLAGS += -lev
 # INCLUDES +=
