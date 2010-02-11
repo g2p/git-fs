@@ -175,6 +175,7 @@ type scaffolding =
   |RefsScaff of string * ref_tree_i
   |CommitsScaff
   |RefScaff of string
+  |ReflogScaff of string
   |FsSymlink of string
   |WorktreeSymlink of hash
   |PlainBlob of hash
@@ -241,9 +242,9 @@ let commit_parents_pretty_names hash =
       tl)
 
 let parent_symlink merged parent_id depth =
-  let fail () = failwith (Printf.sprintf
-        "%S has incorrect syntax for a parent of %S" parent_id merged) in
-  if not (BatString.starts_with parent_id (merged ^ "^")) then fail ();
+  if not (BatString.starts_with parent_id (merged ^ "^"))
+  then failwith (Printf.sprintf
+        "%S has incorrect syntax for a parent of %S" parent_id merged);
   let suffix = BatString.tail parent_id 41 in
   prerr_endline suffix;
   let parent_idx = if suffix = "" then 0 else int_of_string suffix in
@@ -297,6 +298,32 @@ let ref_tree () =
   |Some (cached, tstamp) -> cached
 
 
+let reflog_entries name =
+  let r = List.filter (fun s -> s <> "") (
+    BatString.nsplit (backtick_git [ "rev-list"; "-g"; name; ]) "\n")
+  in List.iter (fun h ->
+    known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
+    r;
+  r
+
+let reflog_entries_pretty_names name =
+  BatList.mapi (fun i h -> "@{" ^ (string_of_int i) ^ "}")
+    (reflog_entries name)
+
+
+let reflog_regexp = Str.regexp "^\\(.*\\)@{\\([0-9]+\\)}$"
+
+let reflog_entry name child depth =
+  let fail () = failwith (Printf.sprintf
+        "%S has incorrect syntax for a reflog entry of %S" child name) in
+  if not (Str.string_match reflog_regexp child 0 ) then fail ();
+  if Str.matched_group 1 child <> "" then fail ();
+  let hash = trim_endline (backtick_git [ "rev-parse";
+    "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ])
+  in
+    symlink_to_scaff (CommitHash hash) depth
+
+
 (* association list for the fs root *)
 (* takes unit, lazy would also work *)
 let root_al () = [
@@ -335,12 +362,13 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
+let ls_tree_regexp = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000"
+
 let tree_children_uncached hash =
   let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
-  let rgx = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000" in
   let rec parse lines offset =
     if String.length lines = offset then []
-    else if not (Str.string_match rgx lines offset)
+    else if not (Str.string_match ls_tree_regexp lines offset)
     then failwith (
       Printf.sprintf "Ill-formatted ls-tree lines: %S" (
         BatString.slice ~first:offset lines))
@@ -393,8 +421,9 @@ let scaffolding_child scaff child =
       commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
   |RefScaff name when child = "worktree" ->
       FsSymlink "current/worktree"
-  (*|RefScaff name when child = "reflog" -> ReflogScaff name*)
+  |RefScaff name when child = "reflog" -> ReflogScaff name
   |RefScaff name -> raise Not_found
+  |ReflogScaff name -> reflog_entry name child (2 + List.length (BatString.nsplit name "/"))
   |CommitHash hash when child = "msg" -> CommitMsg hash
   |CommitHash hash when child = "parents" -> CommitParents hash
   |CommitHash hash when child = "worktree" ->
@@ -414,7 +443,8 @@ let list_children = function
   |CommitsScaff -> known_commit_hashes () (* Not complete either. *)
   |RefsScaff (prefix, children) ->
       List.map fst children
-  |RefScaff name -> [ "current"; "worktree"; (*"reflog";*) ]
+  |RefScaff name -> [ "current"; "worktree"; "reflog"; ]
+  |ReflogScaff name -> reflog_entries_pretty_names name
   |TreeHash hash -> tree_children_names hash
   |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
   |PlainBlob _ -> failwith "Plain file"
@@ -474,6 +504,7 @@ let do_getattr path =
     |TreeHash _ -> dir_stats
     |CommitHash _ -> dir_stats
     |RefScaff _ -> dir_stats
+    |ReflogScaff _ -> dir_stats
     |CommitParents _ -> dir_stats
 
     |ExeBlob _ -> exe_stats
@@ -499,6 +530,7 @@ let do_opendir path flags =
     |TreeHash _ -> r
     |CommitHash _ -> r
     |RefScaff _ -> r
+    |ReflogScaff _ -> r
     |CommitParents _ -> r
     |_ -> raise (Unix.Unix_error (Unix.EINVAL, "opendir (not a directory)", path))
   with Not_found ->
