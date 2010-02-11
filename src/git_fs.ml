@@ -227,7 +227,7 @@ let tree_of_commit_with_prefix hash prefix =
 
 let commit_parents hash =
   let r = BatString.nsplit (backtick_git
-    [ "log"; "-n1"; "--format=format:'%P'"; hash; ]) " "
+    [ "log"; "-n1"; "--format=format:%P"; hash; ]) " "
   in List.iter (fun h ->
     known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
     r;
@@ -276,7 +276,9 @@ let rec ref_tree_add tree path =
   |children, name::tl -> (* sort order *)
       (name, RefTreeInternalNode (ref_tree_add [] tl))::children
 
-let ref_tree () =
+let ref_tree_cache = ref None
+
+let ref_tree_uncached () =
   let refs = ref_names () in
   let tree = ref [] in
   List.iter (fun refname ->
@@ -284,7 +286,16 @@ let ref_tree () =
     tree := ref_tree_add !tree refpath;
     )
     refs;
+    ref_tree_cache := Some (!tree, Unix.time ());
   !tree
+
+let ref_tree () =
+  match !ref_tree_cache with
+  |None -> ref_tree_uncached ()
+  |Some (cached, tstamp) when tstamp > Unix.time () +. 300. ->
+      ref_tree_uncached () (* every 300s = 5mn *)
+  |Some (cached, tstamp) -> cached
+
 
 (* association list for the fs root *)
 (* takes unit, lazy would also work *)
