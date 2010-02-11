@@ -5,27 +5,104 @@ module UL = struct
   include Unix.LargeFile
 end
 
+module Subprocess = struct
+  (* http://caml.inria.fr/cgi-bin/viewcvs.cgi/ocaml/trunk/otherlibs/unix/unix.ml?view=markup *)
+
+  (* Consider getting a patch that adds an alternative open_proc implementation.
+   * Could use labels, pick execve / execvp / execvpe /execv,
+   * even take a
+   *   type ShellCommand of string | ExecCommand of string array
+   *)
+
+  open Unix
+
+  type popen_process =
+    | Process of in_channel * out_channel
+    | Process_in of in_channel
+    | Process_out of out_channel
+    | Process_full of in_channel * out_channel * in_channel
+
+  let popen_processes = (Hashtbl.create 7 : (popen_process, int) Hashtbl.t)
+
+  let open_proc cmd proc input output toclose =
+    let _ = List.iter set_close_on_exec toclose in
+    match fork () with
+    | 0 ->
+        if input <> stdin then begin dup2 input stdin; close input end;
+        if output <> stdout then begin dup2 output stdout; close output end;
+        begin try execvp cmd.(0) cmd
+        with _ -> exit 127
+        end;
+    | id -> Hashtbl.add popen_processes proc id
+
+  let open_process_in cmd =
+    let (in_read, in_write) = pipe() in
+    let inchan = in_channel_of_descr in_read in
+    open_proc cmd (Process_in inchan) stdin in_write [in_read];
+    close in_write;
+    inchan
+
+  let find_proc_id fun_name proc =
+    try
+      let pid = Hashtbl.find popen_processes proc in
+      Hashtbl.remove popen_processes proc;
+      pid
+    with Not_found ->
+      raise(Unix_error(EBADF, fun_name, ""))
+
+  let rec waitpid_non_intr pid =
+    try waitpid [] pid
+    with Unix_error (EINTR, _, _) -> waitpid_non_intr pid
+
+  let close_process_in inchan =
+    let pid = find_proc_id "close_process_in" (Process_in inchan) in
+    close_in inchan;
+    snd(waitpid_non_intr pid)
+
+end
+
+module SubprocessWithBatIO = struct
+  module Wrapped_in = BatInnerWeaktbl.Make(BatInnerIO.Input) (*input  -> in_channel *)
+  let wrapped_in    = Wrapped_in.create 16
+
+  let open_process_in cmd =
+    let inchan = Subprocess.open_process_in cmd in
+    (* close the fd ourselves (cleanup=false) or close_process_in breaks *)
+    let r = BatUnix.input_of_descr ~autoclose:false ~cleanup:false (
+      Unix.descr_of_in_channel inchan) in
+    Wrapped_in.add wrapped_in r inchan;
+    r
+
+  let descr_of_input = BatUnix.descr_of_input
+
+  let close_process_in cin =
+    let inchan = Wrapped_in.find wrapped_in cin in
+    Wrapped_in.remove wrapped_in cin;
+    try Subprocess.close_process_in inchan
+    with Not_found ->
+      raise (Unix.Unix_error(Unix.EBADF, "close_process_in", ""))
+
+end
+
 let require_normal_exit out_pipe =
-  let status = BatUnix.close_process_in out_pipe in
+  let status = SubprocessWithBatIO.close_process_in out_pipe in
   if status <> Unix.WEXITED 0
   then failwith "Non-zero exit status"
 
 (* Run a command, return stdout data as a string *)
-(* Going through the shell is evil/ugly,
-   but I didn't find a non system()-based api *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
-let backtick shell_cmd =
-  prerr_endline (Printf.sprintf "Command %S" shell_cmd);
-  let out_pipe = BatUnix.open_process_in shell_cmd in
+let backtick cmd =
+  prerr_endline (Printf.sprintf "Command %S" (BatString.join " " cmd));
+  let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
   let r = BatIO.read_all out_pipe in
   require_normal_exit out_pipe;
   r
 
 (* Run a command, read the output into a BigArray.Array1. *)
-let subprocess_read_bigarray shell_cmd offset big_array =
-  prerr_endline (Printf.sprintf "Command %S" shell_cmd);
-  let out_pipe = BatUnix.open_process_in shell_cmd in
-  let out_fd = BatUnix.descr_of_input out_pipe in
+let subprocess_read_bigarray cmd offset big_array =
+  prerr_endline (Printf.sprintf "Command %S" (BatString.join " " cmd));
+  let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
+  let out_fd = SubprocessWithBatIO.descr_of_input out_pipe in
   (* Can't seek a pipe. Read and ignore. *)
   (* XXX lossy int64 conversion *)
   ignore (BatIO.really_nread out_pipe (Int64.to_int offset));
@@ -40,19 +117,19 @@ let trim_endline str =
   BatString.trim str
 
 let git_dir_lazy = lazy (
-  let r = trim_endline (backtick "git rev-parse --git-dir")
+  let r = trim_endline (backtick ["git"; "rev-parse"; "--git-dir"; ])
   in if r <> "" then r else failwith "Git directory not found."
 )
 
 let backtick_git cmd =
   let lazy git_dir = git_dir_lazy in
-  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
-  backtick cmd_str
+  let cmd = "git"::"--git-dir"::git_dir::cmd in
+  backtick cmd
 
 let subprocess_read_bigarray_git cmd offset big_array =
   let lazy git_dir = git_dir_lazy in
-  let cmd_str = String.concat " " ("git"::"--git-dir"::git_dir::cmd) in
-  subprocess_read_bigarray cmd_str offset big_array
+  let cmd = "git"::"--git-dir"::git_dir::cmd in
+  subprocess_read_bigarray cmd offset big_array
 
 let describe_tag hash =
   () (* git cat-file tag demo-tag *)
@@ -175,16 +252,12 @@ let parent_symlink merged parent_id depth =
 
 let ref_names () =
   (**
-   * These backslashes are the reason system() is evil and kills kittens.
-   *
-   * Because BatUnix calls system, we have shell code potentially everywhere.
-   *
    * This result shouldn't be cached, unlike most of the git data model
    * it's not a functional data structure and may mutate.
    *)
   List.filter (fun s -> s <> "") (
     BatString.nsplit (
-      backtick_git [ "for-each-ref"; "--format"; "%\\(refname\\)"; ]
+      backtick_git [ "for-each-ref"; "--format"; "%(refname)"; ]
       )
     "\n"
     )
@@ -501,7 +574,8 @@ let cmd_mount () =
   with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
   prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
   let fuse_args = [|
-    subtype; "-f"; "-oro";
+    subtype; "-f";
+    "-o"; "ro";
     "-osubtype=" ^ subtype;
     "-ofsname=" ^ (abspath git_dir); (* XXX needs ","-quoting *)
     mountpoint;
@@ -511,7 +585,7 @@ let cmd_mount () =
 let cmd_umount () =
   let lazy mountpoint = mountpoint_lazy in
   try
-    ignore (backtick ("fusermount -u -- " ^ mountpoint))
+    ignore (backtick ["fusermount"; "-u"; "--"; mountpoint])
   with
     Failure "Non-zero exit status" -> ()
 

@@ -1,6 +1,5 @@
 
 Map more stuff (tags: descriptions, tagger and signatures; reflog).
-Get rid of system(); abstractions backed by shit and it's unsafe. Go the exec route, not the autoquote everything crap.
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 
 Get a library to access the repo without fork/malloc/die cycles
@@ -17,4 +16,7 @@ Remove the base64 refnames hack.
 Add a default mountpoint, and be singleton on that.
 Simplest possible tag support.
 Support symlinks inside the worktree.
+
+Get rid of system(); abstractions backed by shit and it's unsafe. Go the exec route, not the autoquote everything crap.
+This was done at the cost of some deep integration with Unix / BatUnix, unfortunately.
 

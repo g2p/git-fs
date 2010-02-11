@@ -11,5 +11,8 @@ Inspirations:
 node.js's process.ChildProcess (js/C++);
 python's subprocess module.
 
+API wishes:
+check_output from py3k.
+
 
 
