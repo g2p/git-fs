@@ -396,7 +396,7 @@ let prime_cache path scaff =
 let ls_tree_regexp = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000"
 
 let tree_children_uncached hash =
-  let lines = backtick_git [ "ls-tree"; "-z"; "--"; hash; ] in
+  let lines = backtick_git [ "ls-tree"; "--full-tree"; "-z"; "--"; hash; ] in
   let rec parse lines offset =
     if String.length lines = offset then []
     else if not (Str.string_match ls_tree_regexp lines offset)
