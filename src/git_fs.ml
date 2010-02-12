@@ -663,8 +663,8 @@ let cmd_mount () =
   let lazy git_dir = git_dir_lazy in
   (* fuse doesn't guess the subtype if we give it fsname *)
   let subtype = Filename.basename Sys.argv.(0) in
-  try Unix.mkdir mountpoint 0o0755
-  with Unix.Unix_error(Unix.EEXIST, _, _) -> ();
+  begin try Unix.mkdir mountpoint 0o0755
+  with Unix.Unix_error(Unix.EEXIST, _, _) -> () end;
   prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
   let fuse_args = [|
     subtype; "-f";
