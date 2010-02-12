@@ -445,8 +445,6 @@ let scaffolding_child scaff child =
       |RefTreeInternalNode children -> RefsScaff (pf2, children)
       )
   |CommitsScaff -> CommitHash child
-  |PlainBlob _ -> raise Not_found
-  |ExeBlob _ -> raise Not_found
   |TreeHash hash -> tree_child hash child
   |RefScaff name when child = "current" ->
       commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
@@ -460,33 +458,41 @@ let scaffolding_child scaff child =
   |CommitHash hash when child = "parents" -> CommitParents hash
   |CommitHash hash when child = "worktree" ->
       tree_symlink_of_commit hash 2
-  |CommitHash _ -> raise Not_found
-  |CommitMsg _ -> raise Not_found
-  |CommitDiff _ -> raise Not_found
   |CommitParents hash ->
       (* here, child confusingly means parent in git semantics *)
       parent_symlink hash child 3
-  |FsSymlink _ -> raise Not_found
-  |WorktreeSymlink _ -> raise Not_found
+  |PlainBlob _
+  |ExeBlob _
+  |CommitHash _
+  |CommitMsg _
+  |CommitDiff _
+  |FsSymlink _
+  |WorktreeSymlink _ ->
+      raise (Unix.Unix_error
+        (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
 
 let list_children = function
-  |RootScaff -> List.map fst (root_al ())
+  |RootScaff ->
+      List.map fst (root_al ())
   |TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
       known_tree_hashes ()
-  |CommitsScaff -> known_commit_hashes () (* Not complete either. *)
+  |CommitsScaff ->
+      known_commit_hashes () (* Not complete either. *)
   |RefsScaff (prefix, children) ->
       List.map fst children
   |RefScaff name -> [ "current"; "worktree"; "reflog"; ]
+  |CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
   |ReflogScaff name -> reflog_entries_pretty_names name
   |TreeHash hash -> tree_children_names hash
-  |CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
-  |PlainBlob _ -> failwith "Plain file"
-  |ExeBlob _ -> failwith "Plain file"
-  |CommitMsg _ -> failwith "Plain file"
-  |CommitDiff _ -> failwith "Plain file"
   |CommitParents hash -> commit_parents_pretty_names hash
-  |FsSymlink _ -> failwith "Symlink"
-  |WorktreeSymlink _ -> failwith "Symlink" (* XXX I'm not sure *)
+  |PlainBlob _
+  |ExeBlob _
+  |CommitMsg _
+  |CommitDiff _
+  |FsSymlink _
+  |WorktreeSymlink _ ->
+      raise (Unix.Unix_error
+        (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
 
 
 let lookup scaff path =
@@ -535,23 +541,25 @@ let do_getattr path =
   try
     let fh, scaff = lookup_and_cache path in
     match scaff with
-    |RootScaff -> dir_stats
-    |TreesScaff -> dir_stats
-    |RefsScaff _ -> dir_stats
-    |CommitsScaff -> dir_stats
-    |TreeHash _ -> dir_stats
-    |CommitHash _ -> dir_stats
-    |RefScaff _ -> dir_stats
-    |ReflogScaff _ -> dir_stats
+    |RootScaff
+    |TreesScaff
+    |CommitsScaff
+    |RefsScaff _
+    |TreeHash _
+    |CommitHash _
+    |RefScaff _
+    |ReflogScaff _
     |CommitParents _ -> dir_stats
 
-    |ExeBlob hash -> blob_stats_by_hash hash true
-    |PlainBlob hash -> blob_stats_by_hash hash false
-    |CommitMsg _ -> file_stats
+    |CommitMsg _
     |CommitDiff _ -> file_stats
 
-    |FsSymlink _ -> symlink_stats
+    |FsSymlink _
     |WorktreeSymlink _ -> symlink_stats
+
+    |PlainBlob hash -> blob_stats_by_hash hash false
+    |ExeBlob hash -> blob_stats_by_hash hash true
+
     with Not_found ->
       raise (Unix.Unix_error (Unix.ENOENT, "stat", path))
 
@@ -561,16 +569,16 @@ let do_opendir path flags =
     let fh, scaff = lookup_and_cache path in
     let r = Some fh in
     match scaff with
-    |RootScaff -> r
-    |TreesScaff -> r
-    |RefsScaff _ -> r
-    |CommitsScaff -> r
-    |TreeHash _ -> r
-    |CommitHash _ -> r
-    |RefScaff _ -> r
-    |ReflogScaff _ -> r
+    |RootScaff
+    |TreesScaff
+    |CommitsScaff
+    |RefsScaff _
+    |TreeHash _
+    |CommitHash _
+    |RefScaff _
+    |ReflogScaff _
     |CommitParents _ -> r
-    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "opendir (not a directory)", path))
+    |_ -> raise (Unix.Unix_error (Unix.ENOTDIR, "opendir (not a directory)", path))
   with Not_found ->
     raise (Unix.Unix_error (Unix.ENOENT, "opendir", path))
 
@@ -599,9 +607,9 @@ let do_fopen path flags =
   try
     let fh, scaff = lookup_and_cache path in
     match scaff with
-    |PlainBlob _ -> Some fh
-    |ExeBlob _ -> Some fh
-    |CommitMsg _ -> Some fh
+    |PlainBlob _
+    |ExeBlob _
+    |CommitMsg _
     |CommitDiff _ -> Some fh
     (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
     (* XXX Maybe introduce different symlinks for our hashlinks
@@ -618,9 +626,7 @@ let do_read path buf ofs fh =
   try
     let scaff = lookup_fh fh in ignore scaff;
     match scaff with
-    |PlainBlob hash ->
-        subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
-    |ExeBlob hash ->
+    |PlainBlob hash |ExeBlob hash ->
         subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
     |CommitMsg hash ->
         (* Not exactly the raw message, but there's no api to get it.
