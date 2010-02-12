@@ -1,7 +1,10 @@
-open build/C
 open build/OCaml
+
+if false:
+    open build/C
+    .SUBDIRS: subprocess
 
 DefineCommandVars()
 
-.SUBDIRS: . subprocess
+.SUBDIRS: .
 
