@@ -5,15 +5,22 @@ section
    vmount(-l, src, build)
    .SUBDIRS: build
 
-section
-   vmount(-l, src, profile)
-   OCAMLPACKS[] += bisect
-   OCAMLFINDFLAGS += -syntax camlp4o
-   .SUBDIRS: profile
+if false:
 
-profile: profile/git-fs
-   # Some commands are here to exercise error paths.
-   cd profile && ./coverage && \
-   sh -c 'ocamlfind bisect/bisect-report bisect*.out -html report'
-   echo "Report available at profile/report/index.html"
+   section
+      vmount(-l, src, profile)
+      OCAMLPACKS[] += bisect
+      OCAMLFINDFLAGS += -syntax camlp4o
+      .SUBDIRS: profile
+
+   profile: profile/git-fs
+      # Some commands are here to exercise error paths.
+      cd profile && ./coverage && \
+      sh -c 'ocamlfind bisect/bisect-report bisect*.out -html report'
+      echo "Report available at profile/report/index.html"
+
+else:
+   profile:
+      echo "Profiling support is disabled. Install ocaml-bisect and edit this OMakefile."
+      exit 1
 
