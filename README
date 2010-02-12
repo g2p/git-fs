@@ -1,11 +1,11 @@
 
 git-fs lets you access the git filesystem as a normal filesystem.
 
-Currently it lets you browse branches, commits and worktrees.
+Currently it lets you browse branches, reflogs, commits and worktrees.
 
 Known dependencies:
 
-    sudo aptitude install omake libbatteries-ocaml-dev
+    sudo aptitude install omake libfuse-dev libbatteries-ocaml-dev
 
 Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
 
@@ -25,6 +25,7 @@ Usage:
     ./git-fs mount
     cd .git/fs/heads/master/worktree
     cat README
+    cd -
     ./git-fs umount
 
 Install (~/bin must be in your path):
@@ -38,4 +39,8 @@ git-fs can now be invoked as:
 Or the shorter:
 
     git fs
+
+Other features:
+
+    git fs help
 
