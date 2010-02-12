@@ -4,7 +4,7 @@ CFLAGS += -Wall -Wextra -Werror
 LDFLAGS += -lev
 # INCLUDES +=
 
-if false:
+if false
     LDFLAGS += -Wl,-rpath=$(PWD)/libev/.libs
     CFLAGS += -ggdb3
 

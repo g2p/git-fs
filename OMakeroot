@@ -1,6 +1,6 @@
 open build/OCaml
 
-if false:
+if false
     open build/C
     .SUBDIRS: subprocess
 
