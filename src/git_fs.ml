@@ -1,3 +1,5 @@
+(* vim: set tw=0 sw=2 ts=2 et : *)
+
 (**************************************************************************)
 (*  Copyright (C) 2010 G2P                                                *)
 (*                                                                        *)
@@ -16,8 +18,6 @@
 (*  You should have received a copy of the GNU General Public License     *)
 (*  along with git-fs.  If not, see <http://www.gnu.org/licenses/>.       *)
 (**************************************************************************)
-
-(* vim: set tw=0 sw=2 ts=2 et : *)
 
 (* Isn't there a simpler syntax? *)
 module UL = struct
@@ -210,6 +210,7 @@ type scaffolding =
   |TreeHash of hash
   |CommitHash of hash
   |CommitMsg of hash
+  |CommitDiff of hash
   |CommitParents of hash
   (*|OtherHash of hash (* gitlink, etc *)*)
 
@@ -455,11 +456,13 @@ let scaffolding_child scaff child =
   |RefScaff name -> raise Not_found
   |ReflogScaff name -> reflog_entry name child (2 + List.length (BatString.nsplit name "/"))
   |CommitHash hash when child = "msg" -> CommitMsg hash
+  |CommitHash hash when child = "diff" -> CommitDiff hash
   |CommitHash hash when child = "parents" -> CommitParents hash
   |CommitHash hash when child = "worktree" ->
       tree_symlink_of_commit hash 2
   |CommitHash _ -> raise Not_found
   |CommitMsg _ -> raise Not_found
+  |CommitDiff _ -> raise Not_found
   |CommitParents hash ->
       (* here, child confusingly means parent in git semantics *)
       parent_symlink hash child 3
@@ -476,10 +479,11 @@ let list_children = function
   |RefScaff name -> [ "current"; "worktree"; "reflog"; ]
   |ReflogScaff name -> reflog_entries_pretty_names name
   |TreeHash hash -> tree_children_names hash
-  |CommitHash _ -> [ "msg"; "worktree"; "parents"; ]
+  |CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
   |PlainBlob _ -> failwith "Plain file"
   |ExeBlob _ -> failwith "Plain file"
   |CommitMsg _ -> failwith "Plain file"
+  |CommitDiff _ -> failwith "Plain file"
   |CommitParents hash -> commit_parents_pretty_names hash
   |FsSymlink _ -> failwith "Symlink"
   |WorktreeSymlink _ -> failwith "Symlink" (* XXX I'm not sure *)
@@ -544,6 +548,7 @@ let do_getattr path =
     |ExeBlob hash -> blob_stats_by_hash hash true
     |PlainBlob hash -> blob_stats_by_hash hash false
     |CommitMsg _ -> file_stats
+    |CommitDiff _ -> file_stats
 
     |FsSymlink _ -> symlink_stats
     |WorktreeSymlink _ -> symlink_stats
@@ -597,6 +602,7 @@ let do_fopen path flags =
     |PlainBlob _ -> Some fh
     |ExeBlob _ -> Some fh
     |CommitMsg _ -> Some fh
+    |CommitDiff _ -> Some fh
     (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
     (* XXX Maybe introduce different symlinks for our hashlinks
      * and the symlinks git repos can contain. *)
@@ -620,6 +626,9 @@ let do_read path buf ofs fh =
         (* Not exactly the raw message, but there's no api to get it.
          * %s and %b don't go far. There's rewrapping and stuff. *)
         subprocess_read_bigarray_git [ "log"; "--max-count=1"; hash; ] ofs buf
+    |CommitDiff hash ->
+      subprocess_read_bigarray_git [ "format-patch";
+        "-C"; "--max-count=1"; "--stdout"; hash; ] ofs buf
     |_ -> assert false (* we filtered at fopen time *)
     with Not_found ->
       raise (Unix.Unix_error (Unix.ENOENT, "read", path))
