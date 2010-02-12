@@ -145,8 +145,8 @@ let symlink_target hash =
 
 let dir_stats = Unix.LargeFile.stat "." (* XXX *)
 let file_stats = { dir_stats with
-  UL.st_nlink = 1;
   UL.st_kind = Unix.S_REG;
+  UL.st_nlink = 1;
   UL.st_perm = 0o400;
   (* /proc uses zero, it works.
    * /sys uses 4k.
@@ -155,13 +155,17 @@ let file_stats = { dir_stats with
    * strace cat with 0 size someday)
    *)
   (*UL.st_size = Int64.zero;*)
-  UL.st_size = Int64.of_int 4096;
+  UL.st_size = Int64.of_int 4096; (* XXX *)
   }
-let exe_stats = { file_stats with
-  UL.st_perm = 0o500;
+let blob_stats size is_exe = { file_stats with
+  UL.st_size = size;
+  UL.st_perm = if is_exe then 0o500 else 0o400;
   }
-let symlink_stats = { file_stats with
+
+let symlink_stats = { dir_stats with
   UL.st_kind = Unix.S_LNK;
+  UL.st_nlink = 1;
+  UL.st_perm = 0o400;
   }
 
 
@@ -487,7 +491,7 @@ let lookup_and_cache path =
 
 
 let blob_size_uncached hash =
-  int_of_string (trim_endline (backtick_git [ "cat-file"; "-s"; hash; ]))
+  Int64.of_string (trim_endline (backtick_git [ "cat-file"; "-s"; hash; ]))
 
 let blob_size =
   let cache = Hashtbl.create 16
@@ -499,6 +503,10 @@ let blob_size =
       Hashtbl.add cache hash r;
       r
   in blob_size
+
+let blob_stats_by_hash hash is_exe =
+  blob_stats (blob_size hash) is_exe
+
 
 let do_getattr path =
   try
@@ -514,9 +522,8 @@ let do_getattr path =
     |ReflogScaff _ -> dir_stats
     |CommitParents _ -> dir_stats
 
-    |ExeBlob _ -> exe_stats
-
-    |PlainBlob _ -> file_stats
+    |ExeBlob hash -> blob_stats_by_hash hash true
+    |PlainBlob hash -> blob_stats_by_hash hash false
     |CommitMsg _ -> file_stats
 
     |FsSymlink _ -> symlink_stats
