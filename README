@@ -1,7 +1,13 @@
 
+git-fs
+======
+
 git-fs lets you access the git filesystem as a normal filesystem.
 
 Currently it lets you browse branches, reflogs, commits and worktrees.
+
+Building and using git-fs
+-------------------------
 
 Known dependencies:
 
@@ -9,9 +15,9 @@ Known dependencies:
 
 Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
 
-wget http://downloads.sf.net/ocamlfuse/2.7/ocamlfuse-2.7-1.tar.gz
-sha256sum ocamlfuse-2.7-1.tar.gz
-c68eebae24a22ac5bd8394d3a5534b5411f10f9444f2d3bc8a8aabc40bb0e4be  ocamlfuse-2.7-1.tar.gz
+    wget http://downloads.sf.net/ocamlfuse/2.7/ocamlfuse-2.7-1.tar.gz
+    sha256sum ocamlfuse-2.7-1.tar.gz
+    c68eebae24a22ac5bd8394d3a5534b5411f10f9444f2d3bc8a8aabc40bb0e4be  ocamlfuse-2.7-1.tar.gz
 
 Unpack ocamlfuse to a folder called (or symlinked) ocamlfuse.
 
