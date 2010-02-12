@@ -25,7 +25,9 @@ module UL = struct
 end
 
 (* a |> b |> c is equivalent to c (b a).
- * I haven't found Haskell's ($) operator yet. *)
+  I haven't found Haskell's ($) operator yet,
+  probably because it is right-associative.
+  *)
 let (|>) = BatPervasives.(|>)
 
 module Subprocess = struct

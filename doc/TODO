@@ -1,7 +1,16 @@
 Figure out why it won't work in the background (ie, without fuse option -f).
 Unhelpfully, strace doesn't seem to work well in the background case.
 
-Map more stuff (tags: descriptions, tagger and signatures; reflog messages; HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD).
+Map more stuff
+  tags
+    descriptions
+    tagger
+    signatures
+  reflog messages
+  symbolic refs
+    HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
+  configuration
+  remote urls
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 
 Get a library to access the repo without fork/malloc/die cycles

@@ -35,7 +35,16 @@ commits/
   COMMIT (hash)/
 trees/
   HASH
+config/
+  repo/
+    CONFIG
+  global/
+  system/
+  merged/
 index/
+
+CONFIG/
+  KEY -> contents is VALUE
 
 COMMIT (hash)/
   msg
