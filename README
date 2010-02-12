@@ -19,11 +19,11 @@ Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
     sha256sum ocamlfuse-2.7-1.tar.gz
     c68eebae24a22ac5bd8394d3a5534b5411f10f9444f2d3bc8a8aabc40bb0e4be  ocamlfuse-2.7-1.tar.gz
 
-Unpack ocamlfuse to a folder called (or symlinked) ocamlfuse.
+Unpack ocamlfuse to a folder called (or symlinked) deps/ocamlfuse.
 
 Build:
 
-    make -C ocamlfuse/lib
+    make -C deps/ocamlfuse/lib
     omake
 
 Usage:
