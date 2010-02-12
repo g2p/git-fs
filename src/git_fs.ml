@@ -5,6 +5,10 @@ module UL = struct
   include Unix.LargeFile
 end
 
+(* a |> b |> c is equivalent to c (b a).
+ * I haven't found Haskell's ($) operator yet. *)
+let (|>) = BatPervasives.(|>)
+
 module Subprocess = struct
   (* http://caml.inria.fr/cgi-bin/viewcvs.cgi/ocaml/trunk/otherlibs/unix/unix.ml?view=markup *)
 
@@ -307,8 +311,11 @@ let reflog_entries name =
   r
 
 let reflog_entries_pretty_names name =
-  BatList.mapi (fun i h -> "@{" ^ (string_of_int i) ^ "}")
-    (reflog_entries name)
+  let entries = reflog_entries name in
+  let n = List.length entries in
+  let width = n - 1 |> float_of_int |> log10 |> ceil |> int_of_float in
+  BatList.mapi (fun i h ->
+    "@{" ^ (Printf.sprintf "%0*d" width i) ^ "}") entries
 
 
 let reflog_regexp = Str.regexp "^\\(.*\\)@{\\([0-9]+\\)}$"
