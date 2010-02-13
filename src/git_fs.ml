@@ -317,7 +317,11 @@ let ref_tree_uncached () =
     tree := ref_tree_add !tree refpath;
     )
     refs;
-    ref_tree_cache := Some (!tree, Unix.time ());
+  (* symbolic refs don't pass show-ref. Different beast. *)
+  (* Even HEAD doesn't always pass symbolic-ref.
+   * Only rev-parse seems foolproof. *)
+  (* tree := ref_tree_add !tree ["HEAD"]; *)
+  ref_tree_cache := Some (!tree, Unix.time ());
   !tree
 
 let ref_tree () =

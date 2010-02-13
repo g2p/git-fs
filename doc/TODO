@@ -11,8 +11,10 @@ Map more stuff
     date-based view
   symbolic refs
     HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
+    git grep -wl --all-match -e HEAD -e FETCH_HEAD -e ORIG_HEAD -e MERGE_HEAD
   configuration
   remote urls
+
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 
 Get a library to access the repo without fork/malloc/die cycles
