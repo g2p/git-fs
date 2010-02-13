@@ -60,7 +60,12 @@ COMMIT (hash)/
 REF (name)/
   current -> symlink COMMIT (hash)
   reflog/
-    name@{0}/
+    @{0}/ # can't keep name, or must urlencode it
       msg
       commit -> symlink
+  reflog-by-date/
+    YEAR/
+      MONTH/
+        DAY/
+          @{INDEX} -> symlink to reflog/@{INDEX}
 

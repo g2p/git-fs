@@ -6,7 +6,9 @@ Map more stuff
     descriptions
     tagger
     signatures
-  reflog messages
+  reflog
+    messages
+    date-based view
   symbolic refs
     HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
   configuration
