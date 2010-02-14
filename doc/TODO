@@ -15,8 +15,6 @@ Map more stuff
   configuration
   remote urls
 
-Elucidate the stat st_size stuff; fuse sounds like it relies on it.
-
 Get a library to access the repo without fork/malloc/die cycles
 that cost (in memory latency? whatever, it's very slow).
 Also consider getting rid of the file-at-once requirement;
@@ -35,4 +33,8 @@ Support symlinks inside the worktree.
 
 Get rid of system(); abstractions backed by shit and it's unsafe. Go the exec route, not the autoquote everything crap.
 This was done at the cost of some deep integration with Unix / BatUnix, unfortunately.
+
+Elucidate the stat st_size stuff; fuse sounds like it relies on it.
+Using correct sizes. Fuse relies on it because it does caching, and will
+make bigger read requests if necessary (-o max_readahead).
 
