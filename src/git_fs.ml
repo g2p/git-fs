@@ -214,34 +214,55 @@ and ref_tree =
   |RefTreeInternalNode of ref_tree_i
   |RefTreeLeaf
 
-type scaffolding =
-  |RootScaff
-  |TreesScaff
+type scaffolding = [
+  |`RootScaff
+  |`TreesScaff
+  |`CommitsScaff
   (* prefix, and a subtree we haven't traversed yet *)
-  |RefsScaff of string * ref_tree_i
-  |CommitsScaff
-  |RefScaff of string
-  |ReflogScaff of string
-  |FsSymlink of string
-  |WorktreeSymlink of hash
-  |PlainBlob of hash
-  |ExeBlob of hash
-  |TreeHash of hash
-  |CommitHash of hash
-  |CommitMsg of hash
-  |CommitDiff of hash
-  |CommitParents of hash
-  (*|OtherHash of hash (* gitlink, etc *)*)
+  |`RefsScaff of string * ref_tree_i
+  |`RefScaff of string
+  |`ReflogScaff of string
+  |`FsSymlink of string
+  |`WorktreeSymlink of hash
+  |`PlainBlob of hash
+  |`ExeBlob of hash
+  |`TreeHash of hash
+  |`CommitHash of hash
+  |`CommitMsg of hash
+  |`CommitDiff of hash
+  |`CommitParents of hash
+  (*| (* gitlink, etc *)*)
+  ]
+
+
+let categorise = function
+  |`RootScaff
+  |`TreesScaff
+  |`CommitsScaff
+  |`RefsScaff _
+  |`TreeHash _
+  |`CommitHash _
+  |`RefScaff _
+  |`ReflogScaff _
+  |`CommitParents _ as scaff -> `DirLike scaff
+
+  |`FsSymlink _
+  |`WorktreeSymlink _ as scaff -> `SymlinkLike scaff
+
+  |`CommitMsg hash
+  |`CommitDiff hash
+  |`PlainBlob hash
+  |`ExeBlob hash as scaff -> `FileLike scaff
+
 
 let rec canonical = function
-  |RootScaff -> "."
-  |TreesScaff -> "trees"
-  |RefsScaff (prefix, subtree) ->
+  |`RootScaff -> "."
+  |`TreesScaff -> "trees"
+  |`RefsScaff (prefix, subtree) ->
       if prefix = "" then "refs" else "refs" ^ "/" ^ prefix
-  |CommitsScaff -> "commits"
-  |TreeHash hash -> (canonical TreesScaff) ^ "/" ^ hash
-  |CommitHash hash -> (canonical CommitsScaff) ^ "/" ^ hash
-  |_ -> failwith "Not implemented"
+  |`CommitsScaff -> "commits"
+  |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ hash
+  |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ hash
 
 let rec parents_depth depth =
   if depth = 0 then ""
@@ -250,7 +271,7 @@ let rec parents_depth depth =
 let symlink_to_scaff scaff depth =
   let path = canonical scaff in
   let to_root = parents_depth depth in
-  FsSymlink (to_root ^ path)
+  `FsSymlink (to_root ^ path)
 
 let hashtable_keys htbl =
   let acc = ref [] in
@@ -296,7 +317,7 @@ let parent_symlink merged parent_id depth =
   let suffix = BatString.tail parent_id 41 in
   let parent_idx = if suffix = "" then 0 else int_of_string suffix in
   let hash = List.nth (commit_parents merged) parent_idx in
-  symlink_to_scaff (CommitHash hash) depth
+  symlink_to_scaff (`CommitHash hash) depth
 
 let ref_names () =
   (**
@@ -375,18 +396,18 @@ let reflog_entry name child depth =
   let hash = trim_endline (backtick_git [ "rev-parse";
     "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ])
   in
-    symlink_to_scaff (CommitHash hash) depth
+    symlink_to_scaff (`CommitHash hash) depth
 
 
 (* association list for the fs root *)
 (* takes unit, lazy would also work *)
 let root_al () = [
-  "trees", TreesScaff;
-  "refs", RefsScaff ("", ref_tree ());
-  "commits", CommitsScaff;
-  "heads", FsSymlink "refs/refs/heads";
-  "remotes", FsSymlink "refs/refs/remotes";
-  "tags", FsSymlink "refs/refs/tags";
+  "trees", `TreesScaff;
+  "refs", `RefsScaff ("", ref_tree ());
+  "commits", `CommitsScaff;
+  "heads", `FsSymlink "refs/refs/heads";
+  "remotes", `FsSymlink "refs/refs/remotes";
+  "tags", `FsSymlink "refs/refs/tags";
   ]
 
 
@@ -394,11 +415,11 @@ let tree_of_commit hash =
   tree_of_commit_with_prefix hash ""
 
 let commit_symlink_of_ref ref depth =
-  let scaff = CommitHash (commit_of_ref ref) in
+  let scaff = `CommitHash (commit_of_ref ref) in
   symlink_to_scaff scaff depth
 
 let tree_symlink_of_commit hash depth =
-  let scaff = TreeHash (tree_of_commit hash) in
+  let scaff = `TreeHash (tree_of_commit hash) in
   symlink_to_scaff scaff depth
 
 let fh_data = Hashtbl.create 16
@@ -431,10 +452,10 @@ let tree_children_uncached hash =
       let hash = Str.matched_group 2 lines in
       let name = Str.matched_group 3 lines in
       let scaff = match kind_s with
-      |"100644 blob" -> PlainBlob hash
-      |"100755 blob" -> ExeBlob hash
-      |"120000 blob" -> WorktreeSymlink hash
-      |"040000 tree" -> TreeHash hash
+      |"100644 blob" -> `PlainBlob hash
+      |"100755 blob" -> `ExeBlob hash
+      |"120000 blob" -> `WorktreeSymlink hash
+      |"040000 tree" -> `TreeHash hash
       |_ -> assert false
       in (name, scaff)::(parse lines (Str.match_end ()))
   in parse lines 0
@@ -458,51 +479,59 @@ let tree_children_names hash =
   List.map fst (tree_children hash)
 
 let scaffolding_child scaff child =
-  match scaff with
-  |RootScaff -> List.assoc child (root_al ())
-  |TreesScaff -> TreeHash child (* XXX should check for existence *)
-  |RefsScaff (prefix, children) -> (
-    let pf2 = if prefix = "" then child else prefix ^ "/" ^ child in
-      match List.assoc child children with
-      |RefTreeLeaf -> RefScaff pf2
-      |RefTreeInternalNode children -> RefsScaff (pf2, children)
-      )
-  |CommitsScaff -> CommitHash child
-  |TreeHash hash -> tree_child hash child
-  |RefScaff name when child = "current" ->
-      commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
-  |RefScaff name when child = "worktree" ->
-      FsSymlink "current/worktree"
-  |RefScaff name when child = "reflog" -> ReflogScaff name
-  |RefScaff name -> raise Not_found
-  |ReflogScaff name -> reflog_entry name child (2 +
-      List.length (BatString.nsplit name "/"))
-  |CommitHash hash when child = "msg" -> CommitMsg hash
-  |CommitHash hash when child = "diff" -> CommitDiff hash
-  |CommitHash hash when child = "parents" -> CommitParents hash
-  |CommitHash hash when child = "worktree" ->
-      tree_symlink_of_commit hash 2
-  |CommitParents hash ->
-      (* here, child confusingly means parent in git semantics *)
-      parent_symlink hash child 3
+  match categorise scaff with
+  |`DirLike scaff -> begin match scaff with
+    |`RootScaff -> List.assoc child (root_al ())
+    |`TreesScaff -> `TreeHash child (* XXX should check for existence *)
+    |`RefsScaff (prefix, children) -> (
+      let pf2 = if prefix = "" then child else prefix ^ "/" ^ child in
+        match List.assoc child children with
+        |RefTreeLeaf -> `RefScaff pf2
+        |RefTreeInternalNode children -> `RefsScaff (pf2, children)
+        )
+    |`CommitsScaff -> `CommitHash child
+    |`TreeHash hash -> tree_child hash child
+    |`ReflogScaff name -> reflog_entry name child (2 +
+        List.length (BatString.nsplit name "/"))
+
+    |`RefScaff name when child = "current" ->
+        commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
+    |`RefScaff name when child = "worktree" ->
+        `FsSymlink "current/worktree"
+    |`RefScaff name when child = "reflog" -> `ReflogScaff name
+    |`RefScaff name -> raise Not_found
+
+    |`CommitHash hash when child = "msg" -> `CommitMsg hash
+    |`CommitHash hash when child = "diff" -> `CommitDiff hash
+    |`CommitHash hash when child = "parents" -> `CommitParents hash
+    |`CommitHash hash when child = "worktree" ->
+        tree_symlink_of_commit hash 2
+    |`CommitHash hash -> raise Not_found
+    |`CommitParents hash ->
+        (* here, child confusingly means parent in git semantics *)
+        parent_symlink hash child 3
+  end
   |_ -> (* symlinks aren't directories either, fuse resolves them for us *)
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "scaffolding_child", ""))
 
-let list_children = function
-  |RootScaff ->
-      List.map fst (root_al ())
-  |TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
-      known_tree_hashes ()
-  |CommitsScaff ->
-      known_commit_hashes () (* Not complete either. *)
-  |RefsScaff (prefix, children) ->
-      List.map fst children
-  |RefScaff name -> [ "current"; "worktree"; "reflog"; ]
-  |CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
-  |ReflogScaff name -> reflog_entries_pretty_names name
-  |TreeHash hash -> tree_children_names hash
-  |CommitParents hash -> commit_parents_pretty_names hash
+let list_children scaff =
+  match categorise scaff with
+  |`DirLike scaff -> begin match scaff with
+    |`RootScaff ->
+        List.map fst (root_al ())
+    |`TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
+        known_tree_hashes ()
+    |`CommitsScaff ->
+        known_commit_hashes () (* Not complete either. *)
+    |`RefsScaff (prefix, children) ->
+        List.map fst children
+    |`RefScaff name -> [ "current"; "worktree"; "reflog"; ]
+    |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
+    |`ReflogScaff name -> reflog_entries_pretty_names name
+    |`TreeHash hash -> tree_children_names hash
+    |`CommitParents hash -> commit_parents_pretty_names hash
+  end
   |_ ->
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "list_children", ""))
@@ -529,7 +558,7 @@ let lookup_and_cache caller path =
     Hashtbl.find fh_by_name path
   with Not_found ->
     try
-      let scaff = lookup RootScaff path in
+      let scaff = lookup `RootScaff path in
       prime_cache path scaff
     with Not_found ->
       raise (Unix.Unix_error (Unix.ENOENT, caller, path))
@@ -555,41 +584,25 @@ let blob_stats_by_hash hash is_exe =
 
 let do_getattr path =
   let fh, scaff = lookup_and_cache "stat" path in
-  match scaff with
-  |RootScaff
-  |TreesScaff
-  |CommitsScaff
-  |RefsScaff _
-  |TreeHash _
-  |CommitHash _
-  |RefScaff _
-  |ReflogScaff _
-  |CommitParents _ -> dir_stats
+  match categorise scaff with
+  |`DirLike _ -> dir_stats
 
-  |CommitMsg _
-  |CommitDiff _ -> file_stats
+  |`SymlinkLike _ -> symlink_stats
 
-  |FsSymlink _
-  |WorktreeSymlink _ -> symlink_stats
+  |`FileLike scaff -> match scaff with
+    |`CommitMsg _
+    |`CommitDiff _ -> file_stats
 
-  |PlainBlob hash -> blob_stats_by_hash hash false
-  |ExeBlob hash -> blob_stats_by_hash hash true
+    |`PlainBlob hash -> blob_stats_by_hash hash false
+    |`ExeBlob hash -> blob_stats_by_hash hash true
 
 
 let do_opendir path flags =
 (*log ("Path is: " ^ path);*)
   let fh, scaff = lookup_and_cache "opendir" path in
   let r = Some fh in
-  match scaff with
-  |RootScaff
-  |TreesScaff
-  |CommitsScaff
-  |RefsScaff _
-  |TreeHash _
-  |CommitHash _
-  |RefScaff _
-  |ReflogScaff _
-  |CommitParents _ -> r
+  match categorise scaff with
+  |`DirLike scaff -> r
   |_ ->
       raise (Unix.Unix_error (Unix.ENOTDIR, "opendir", path))
 
@@ -603,20 +616,19 @@ let do_readdir path fh =
 
 let do_readlink path =
   let fh, scaff = lookup_and_cache "readlink" path in
-  match scaff with
-  |FsSymlink target -> target
-  |WorktreeSymlink hash ->
-      symlink_target hash (* XXX: these are allowed to go outside the tree *)
+  match categorise scaff with
+  |`SymlinkLike scaff -> begin match scaff with
+    |`FsSymlink target -> target
+    |`WorktreeSymlink hash ->
+        symlink_target hash (* XXX: these are allowed to go outside the tree *)
+  end
   |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a symlink)", path))
 
 let do_fopen path flags =
   let fh, scaff = lookup_and_cache "fopen" path in
-  match scaff with
-  |PlainBlob _
-  |ExeBlob _
-  |CommitMsg _
-  |CommitDiff _ -> Some fh
-  (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
+  match categorise scaff with
+  |`FileLike scaff -> Some fh
+  (* |`FsSymlink _ -> () *) (* our symlinks all point to directories *)
   (* XXX Maybe introduce different symlinks for our hashlinks
    * and the symlinks git repos can contain. *)
   |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
@@ -627,20 +639,22 @@ let do_fopen path flags =
    *)
 let do_read path buf ofs fh =
   try
-    let scaff = lookup_fh fh in ignore scaff;
-    match scaff with
-    |PlainBlob hash |ExeBlob hash ->
-        subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
-    |CommitMsg hash ->
-        (* Not exactly the raw message, but there's no api to get it.
-         * %s and %b don't go far. There's rewrapping and stuff. *)
-        subprocess_read_bigarray_git [ "log"; "--max-count=1"; hash; ] ofs buf
-    |CommitDiff hash ->
-      subprocess_read_bigarray_git [ "format-patch";
-        "-C"; "--max-count=1"; "--stdout"; hash; ] ofs buf
+    let scaff = lookup_fh fh in
+    match categorise scaff with
+    |`FileLike scaff -> begin match scaff with
+      |`PlainBlob hash |`ExeBlob hash ->
+          subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
+      |`CommitMsg hash ->
+          (* Not exactly the raw message, but there's no api to get it.
+           * %s and %b don't go far. There's rewrapping and stuff. *)
+          subprocess_read_bigarray_git [ "log"; "--max-count=1"; hash; ] ofs buf
+      |`CommitDiff hash ->
+        subprocess_read_bigarray_git [ "format-patch";
+          "-C"; "--max-count=1"; "--stdout"; hash; ] ofs buf
+    end
     |_ -> assert false (* we filtered at fopen time *)
     with Not_found ->
-      raise (Unix.Unix_error (Unix.ENOENT, "read", path))
+      assert false (* because open passed *)
 
 let fuse_ops = {
       Fuse.default_operations with
