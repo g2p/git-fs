@@ -3,11 +3,19 @@ set -e
 exec >/dev/null 2>/dev/null
 ./git-fs umount || true
 trap 'kill $pid' EXIT
+./git-fs help
+./git-fs fuse-help
+! ./git-fs NO-SUCH-COMMAND
 ./git-fs mount & pid=$!
-cat "$(./git-fs show-mountpoint)"/heads/master/worktree/README || true
+! ps -fp "$pid"
+! ./git-fs
 cat "$(./git-fs show-mountpoint)"/heads/master/worktree/README
+cat "$(./git-fs show-mountpoint)"/heads/master/current/msg
+cat "$(./git-fs show-mountpoint)"/heads/master/current/diff
+! readlink "$(./git-fs show-mountpoint)"/heads/master
+! cat "$(./git-fs show-mountpoint)"/heads/master
+! ls "$(./git-fs show-mountpoint)"/heads/master/worktree/README/
 tree -al "$(./git-fs show-mountpoint)"
 ./git-fs umount
 ./git-fs umount || true
-! ps -fp "$pid"
 
