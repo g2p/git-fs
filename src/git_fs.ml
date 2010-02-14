@@ -235,24 +235,35 @@ type scaffolding = [
   ]
 
 
-let categorise = function
+type dir_like = [
   |`RootScaff
   |`TreesScaff
   |`CommitsScaff
-  |`RefsScaff _
-  |`TreeHash _
-  |`CommitHash _
-  |`RefScaff _
-  |`ReflogScaff _
-  |`CommitParents _ as scaff -> `DirLike scaff
+  |`RefsScaff of string * ref_tree_i
+  |`TreeHash of hash
+  |`CommitHash of hash
+  |`RefScaff of hash
+  |`ReflogScaff of hash
+  |`CommitParents of hash
+  ]
 
-  |`FsSymlink _
-  |`WorktreeSymlink _ as scaff -> `SymlinkLike scaff
+type symlink_like = [
+  |`FsSymlink of string
+  |`WorktreeSymlink of hash
+  ]
 
-  |`CommitMsg hash
-  |`CommitDiff hash
-  |`PlainBlob hash
-  |`ExeBlob hash as scaff -> `FileLike scaff
+type file_like = [
+  |`CommitMsg of hash
+  |`CommitDiff of hash
+  |`PlainBlob of hash
+  |`ExeBlob of hash
+  ]
+
+(* kept as a typecheck *)
+let categorise : scaffolding -> 'a = function
+  |#dir_like as scaff -> `DirLike scaff
+  |#symlink_like as scaff -> `SymlinkLike scaff
+  |#file_like as scaff -> `FileLike scaff
 
 
 let rec canonical = function
@@ -479,8 +490,8 @@ let tree_children_names hash =
   List.map fst (tree_children hash)
 
 let scaffolding_child scaff child =
-  match categorise scaff with
-  |`DirLike scaff -> begin match scaff with
+  match scaff with
+  |#dir_like as scaff -> begin match scaff with
     |`RootScaff -> List.assoc child (root_al ())
     |`TreesScaff -> `TreeHash child (* XXX should check for existence *)
     |`RefsScaff (prefix, children) -> (
@@ -516,8 +527,8 @@ let scaffolding_child scaff child =
         (Unix.ENOTDIR, "scaffolding_child", ""))
 
 let list_children scaff =
-  match categorise scaff with
-  |`DirLike scaff -> begin match scaff with
+  match scaff with
+  |#dir_like as scaff -> begin match scaff with
     |`RootScaff ->
         List.map fst (root_al ())
     |`TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
@@ -584,12 +595,10 @@ let blob_stats_by_hash hash is_exe =
 
 let do_getattr path =
   let fh, scaff = lookup_and_cache "stat" path in
-  match categorise scaff with
-  |`DirLike _ -> dir_stats
-
-  |`SymlinkLike _ -> symlink_stats
-
-  |`FileLike scaff -> match scaff with
+  match scaff with
+  |#dir_like -> dir_stats
+  |#symlink_like -> symlink_stats
+  |#file_like as scaff -> match scaff with
     |`CommitMsg _
     |`CommitDiff _ -> file_stats
 
@@ -601,8 +610,8 @@ let do_opendir path flags =
 (*log ("Path is: " ^ path);*)
   let fh, scaff = lookup_and_cache "opendir" path in
   let r = Some fh in
-  match categorise scaff with
-  |`DirLike scaff -> r
+  match scaff with
+  |#dir_like -> r
   |_ ->
       raise (Unix.Unix_error (Unix.ENOTDIR, "opendir", path))
 
@@ -616,8 +625,8 @@ let do_readdir path fh =
 
 let do_readlink path =
   let fh, scaff = lookup_and_cache "readlink" path in
-  match categorise scaff with
-  |`SymlinkLike scaff -> begin match scaff with
+  match scaff with
+  |#symlink_like as scaff -> begin match scaff with
     |`FsSymlink target -> target
     |`WorktreeSymlink hash ->
         symlink_target hash (* XXX: these are allowed to go outside the tree *)
@@ -626,8 +635,8 @@ let do_readlink path =
 
 let do_fopen path flags =
   let fh, scaff = lookup_and_cache "fopen" path in
-  match categorise scaff with
-  |`FileLike scaff -> Some fh
+  match scaff with
+  |#file_like -> Some fh
   (* |`FsSymlink _ -> () *) (* our symlinks all point to directories *)
   (* XXX Maybe introduce different symlinks for our hashlinks
    * and the symlinks git repos can contain. *)
@@ -640,8 +649,8 @@ let do_fopen path flags =
 let do_read path buf ofs fh =
   try
     let scaff = lookup_fh fh in
-    match categorise scaff with
-    |`FileLike scaff -> begin match scaff with
+    match scaff with
+    |#file_like as scaff -> begin match scaff with
       |`PlainBlob hash |`ExeBlob hash ->
           subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
       |`CommitMsg hash ->
