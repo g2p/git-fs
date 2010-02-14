@@ -669,22 +669,44 @@ let fuse_ops = {
 let mountpoint_lazy =
   lazy (let lazy git_dir = git_dir_rel_lazy in git_dir ^ "/fs")
 
+exception Found
+
+let is_mounted fs_type =
+  let lazy mountpoint = mountpoint_lazy in
+  let abs_mountpoint = abspath mountpoint in
+  let psf_lines = BatFile.lines_of "/proc/self/mountinfo" in
+  try
+    BatEnum.iter (fun line ->
+        let fields = BatString.nsplit line " " in
+        if List.nth fields 4 = abs_mountpoint && List.nth fields 7 = fs_type
+        then raise Found)
+      psf_lines;
+    false
+  with Found ->
+    true
+
 let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
   let lazy git_dir_abs = git_dir_abs_lazy in
   (* fuse doesn't guess the subtype if we give it fsname *)
   let subtype = Filename.basename Sys.argv.(0) in
-  begin try Unix.mkdir mountpoint 0o0755
-  with Unix.Unix_error(Unix.EEXIST, _, _) -> () end;
-  prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
-  let fuse_args = [|
-    subtype; (*"-f";*)
-    "-o"; "ro";
-    "-osubtype=" ^ subtype;
-    "-ofsname=" ^ git_dir_abs; (* XXX needs ","-quoting *)
-    mountpoint;
-    |] in
-  Fuse.main fuse_args fuse_ops
+  let fs_type = "fuse." ^ subtype in
+  if is_mounted fs_type
+  then
+    prerr_endline ("Mounted on " ^ mountpoint)
+  else begin
+    begin try Unix.mkdir mountpoint 0o0755
+    with Unix.Unix_error(Unix.EEXIST, _, _) -> () end;
+    prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
+    let fuse_args = [|
+      subtype; (*"-f";*)
+      "-o"; "ro";
+      "-osubtype=" ^ subtype;
+      "-ofsname=" ^ git_dir_abs; (* XXX needs ","-quoting *)
+      mountpoint;
+      |] in
+    Fuse.main fuse_args fuse_ops
+  end
 
 let cmd_umount () =
   let lazy mountpoint = mountpoint_lazy in

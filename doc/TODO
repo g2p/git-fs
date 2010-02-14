@@ -1,5 +1,3 @@
-Nicer singleton behaviour; detect when already running.
-
 Map more stuff
   tags
     descriptions
@@ -41,4 +39,6 @@ Figure out why it won't work in the background (ie, without fuse option -f).
 To strace that, better to reattach that run strace in the foreground.
 The problem was that fuse changed directory to / (following standard
 daemon behaviour).
+
+Nicer singleton behaviour; detect when already mounted.
 
