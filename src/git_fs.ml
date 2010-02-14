@@ -471,7 +471,7 @@ let tree_child hash child =
 let tree_children_names hash =
   List.map fst (tree_children hash)
 
-let scaffolding_child scaff child =
+let scaffolding_child (scaff : scaffolding) child : scaffolding =
   match scaff with
   |#dir_like as scaff -> begin match scaff with
     |`RootScaff -> List.assoc child (root_al ())
@@ -504,11 +504,11 @@ let scaffolding_child scaff child =
         (* here, child confusingly means parent in git semantics *)
         parent_symlink hash child 3
   end
-  |_ -> (* symlinks aren't directories either, fuse resolves them for us *)
+  |#scaffolding -> (* symlinks aren't directories either, fuse resolves them for us *)
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "scaffolding_child", ""))
 
-let list_children scaff =
+let list_children (scaff : scaffolding) =
   match scaff with
   |#dir_like as scaff -> begin match scaff with
     |`RootScaff ->
@@ -525,7 +525,7 @@ let list_children scaff =
     |`TreeHash hash -> tree_children_names hash
     |`CommitParents hash -> commit_parents_pretty_names hash
   end
-  |_ ->
+  |#scaffolding ->
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "list_children", ""))
 
@@ -594,7 +594,7 @@ let do_opendir path flags =
   let r = Some fh in
   match scaff with
   |#dir_like -> r
-  |_ ->
+  |#scaffolding ->
       raise (Unix.Unix_error (Unix.ENOTDIR, "opendir", path))
 
 let do_readdir path fh =
@@ -613,7 +613,7 @@ let do_readlink path =
     |`WorktreeSymlink hash ->
         symlink_target hash (* XXX: these are allowed to go outside the tree *)
   end
-  |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a symlink)", path))
+  |#scaffolding -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a symlink)", path))
 
 let do_fopen path flags =
   let fh, scaff = lookup_and_cache "fopen" path in
@@ -622,7 +622,7 @@ let do_fopen path flags =
   (* |`FsSymlink _ -> () *) (* our symlinks all point to directories *)
   (* XXX Maybe introduce different symlinks for our hashlinks
    * and the symlinks git repos can contain. *)
-  |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
+  |#scaffolding -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
 
 (* Read file data into a Bigarray.Array1.
 
@@ -643,7 +643,7 @@ let do_read path buf ofs fh =
         subprocess_read_bigarray_git [ "format-patch";
           "-C"; "--max-count=1"; "--stdout"; hash; ] ofs buf
     end
-    |_ -> assert false (* we filtered at fopen time *)
+    |#scaffolding -> assert false (* we filtered at fopen time *)
     with Not_found ->
       assert false (* because open passed *)
 
