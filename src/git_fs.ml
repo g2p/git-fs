@@ -475,7 +475,8 @@ let scaffolding_child scaff child =
       FsSymlink "current/worktree"
   |RefScaff name when child = "reflog" -> ReflogScaff name
   |RefScaff name -> raise Not_found
-  |ReflogScaff name -> reflog_entry name child (2 + List.length (BatString.nsplit name "/"))
+  |ReflogScaff name -> reflog_entry name child (2 +
+      List.length (BatString.nsplit name "/"))
   |CommitHash hash when child = "msg" -> CommitMsg hash
   |CommitHash hash when child = "diff" -> CommitDiff hash
   |CommitHash hash when child = "parents" -> CommitParents hash
@@ -484,13 +485,7 @@ let scaffolding_child scaff child =
   |CommitParents hash ->
       (* here, child confusingly means parent in git semantics *)
       parent_symlink hash child 3
-  |PlainBlob _
-  |ExeBlob _
-  |CommitHash _
-  |CommitMsg _
-  |CommitDiff _
-  |FsSymlink _
-  |WorktreeSymlink _ ->
+  |_ -> (* symlinks aren't directories either, fuse resolves them for us *)
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
 
@@ -508,12 +503,7 @@ let list_children = function
   |ReflogScaff name -> reflog_entries_pretty_names name
   |TreeHash hash -> tree_children_names hash
   |CommitParents hash -> commit_parents_pretty_names hash
-  |PlainBlob _
-  |ExeBlob _
-  |CommitMsg _
-  |CommitDiff _
-  |FsSymlink _
-  |WorktreeSymlink _ ->
+  |_ ->
       raise (Unix.Unix_error
         (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
 
