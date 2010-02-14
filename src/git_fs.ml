@@ -61,7 +61,7 @@ module Subprocess = struct
     | id -> Hashtbl.add popen_processes proc id
 
   let open_process_in cmd =
-    let (in_read, in_write) = pipe() in
+    let (in_read, in_write) = pipe () in
     let inchan = in_channel_of_descr in_read in
     open_proc cmd (Process_in inchan) stdin in_write [in_read];
     close in_write;
@@ -73,7 +73,7 @@ module Subprocess = struct
       Hashtbl.remove popen_processes proc;
       pid
     with Not_found ->
-      raise(Unix_error(EBADF, fun_name, ""))
+      raise (Unix_error (EBADF, fun_name, ""))
 
   let rec waitpid_non_intr pid =
     try waitpid [] pid
@@ -82,12 +82,12 @@ module Subprocess = struct
   let close_process_in inchan =
     let pid = find_proc_id "close_process_in" (Process_in inchan) in
     close_in inchan;
-    snd(waitpid_non_intr pid)
+    snd (waitpid_non_intr pid)
 
 end
 
 module SubprocessWithBatIO = struct
-  module Wrapped_in = BatInnerWeaktbl.Make(BatInnerIO.Input) (*input  -> in_channel *)
+  module Wrapped_in = BatInnerWeaktbl.Make (BatInnerIO.Input) (*input  -> in_channel *)
   let wrapped_in    = Wrapped_in.create 16
 
   let open_process_in cmd =
@@ -105,7 +105,7 @@ module SubprocessWithBatIO = struct
     Wrapped_in.remove wrapped_in cin;
     try Subprocess.close_process_in inchan
     with Not_found ->
-      raise (Unix.Unix_error(Unix.EBADF, "close_process_in", ""))
+      raise (Unix.Unix_error (Unix.EBADF, "close_process_in", ""))
 
 end
 
@@ -487,7 +487,7 @@ let scaffolding_child scaff child =
       parent_symlink hash child 3
   |_ -> (* symlinks aren't directories either, fuse resolves them for us *)
       raise (Unix.Unix_error
-        (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
+        (Unix.ENOTDIR, "scaffolding_child", ""))
 
 let list_children = function
   |RootScaff ->
@@ -505,7 +505,7 @@ let list_children = function
   |CommitParents hash -> commit_parents_pretty_names hash
   |_ ->
       raise (Unix.Unix_error
-        (Unix.ENOTDIR, "scaffolding_child (not a directory)", ""))
+        (Unix.ENOTDIR, "list_children", ""))
 
 
 let lookup scaff path =
@@ -524,12 +524,15 @@ let lookup scaff path =
 let lookup_fh fh =
   Hashtbl.find fh_data fh
 
-let lookup_and_cache path =
+let lookup_and_cache caller path =
   try
     Hashtbl.find fh_by_name path
   with Not_found ->
-    let scaff = lookup RootScaff path in
-    prime_cache path scaff
+    try
+      let scaff = lookup RootScaff path in
+      prime_cache path scaff
+    with Not_found ->
+      raise (Unix.Unix_error (Unix.ENOENT, caller, path))
 
 
 let blob_size_uncached hash =
@@ -551,49 +554,44 @@ let blob_stats_by_hash hash is_exe =
 
 
 let do_getattr path =
-  try
-    let fh, scaff = lookup_and_cache path in
-    match scaff with
-    |RootScaff
-    |TreesScaff
-    |CommitsScaff
-    |RefsScaff _
-    |TreeHash _
-    |CommitHash _
-    |RefScaff _
-    |ReflogScaff _
-    |CommitParents _ -> dir_stats
+  let fh, scaff = lookup_and_cache "stat" path in
+  match scaff with
+  |RootScaff
+  |TreesScaff
+  |CommitsScaff
+  |RefsScaff _
+  |TreeHash _
+  |CommitHash _
+  |RefScaff _
+  |ReflogScaff _
+  |CommitParents _ -> dir_stats
 
-    |CommitMsg _
-    |CommitDiff _ -> file_stats
+  |CommitMsg _
+  |CommitDiff _ -> file_stats
 
-    |FsSymlink _
-    |WorktreeSymlink _ -> symlink_stats
+  |FsSymlink _
+  |WorktreeSymlink _ -> symlink_stats
 
-    |PlainBlob hash -> blob_stats_by_hash hash false
-    |ExeBlob hash -> blob_stats_by_hash hash true
+  |PlainBlob hash -> blob_stats_by_hash hash false
+  |ExeBlob hash -> blob_stats_by_hash hash true
 
-    with Not_found ->
-      raise (Unix.Unix_error (Unix.ENOENT, "stat", path))
 
 let do_opendir path flags =
-  (*log ("Path is: " ^ path);*)
-  try
-    let fh, scaff = lookup_and_cache path in
-    let r = Some fh in
-    match scaff with
-    |RootScaff
-    |TreesScaff
-    |CommitsScaff
-    |RefsScaff _
-    |TreeHash _
-    |CommitHash _
-    |RefScaff _
-    |ReflogScaff _
-    |CommitParents _ -> r
-    |_ -> raise (Unix.Unix_error (Unix.ENOTDIR, "opendir (not a directory)", path))
-  with Not_found ->
-    raise (Unix.Unix_error (Unix.ENOENT, "opendir", path))
+(*log ("Path is: " ^ path);*)
+  let fh, scaff = lookup_and_cache "opendir" path in
+  let r = Some fh in
+  match scaff with
+  |RootScaff
+  |TreesScaff
+  |CommitsScaff
+  |RefsScaff _
+  |TreeHash _
+  |CommitHash _
+  |RefScaff _
+  |ReflogScaff _
+  |CommitParents _ -> r
+  |_ ->
+      raise (Unix.Unix_error (Unix.ENOTDIR, "opendir", path))
 
 let do_readdir path fh =
   try
@@ -604,31 +602,24 @@ let do_readdir path fh =
     assert false (* because opendir passed *)
 
 let do_readlink path =
-  try
-    let fh, scaff = lookup_and_cache path in
-    match scaff with
-    |FsSymlink target -> target
-    |WorktreeSymlink hash ->
-        symlink_target hash (* XXX: these are allowed to go outside the tree *)
-    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a link)", path))
-  with Not_found ->
-    raise (Unix.Unix_error (Unix.ENOENT, "readlink", path))
-
+  let fh, scaff = lookup_and_cache "readlink" path in
+  match scaff with
+  |FsSymlink target -> target
+  |WorktreeSymlink hash ->
+      symlink_target hash (* XXX: these are allowed to go outside the tree *)
+  |_ -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a symlink)", path))
 
 let do_fopen path flags =
-  try
-    let fh, scaff = lookup_and_cache path in
-    match scaff with
-    |PlainBlob _
-    |ExeBlob _
-    |CommitMsg _
-    |CommitDiff _ -> Some fh
-    (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
-    (* XXX Maybe introduce different symlinks for our hashlinks
-     * and the symlinks git repos can contain. *)
-    |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
-  with Not_found ->
-    raise (Unix.Unix_error (Unix.ENOENT, "fopen", path))
+  let fh, scaff = lookup_and_cache "fopen" path in
+  match scaff with
+  |PlainBlob _
+  |ExeBlob _
+  |CommitMsg _
+  |CommitDiff _ -> Some fh
+  (* |FsSymlink _ -> () *) (* our symlinks all point to directories *)
+  (* XXX Maybe introduce different symlinks for our hashlinks
+   * and the symlinks git repos can contain. *)
+  |_ -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
 
 (* Read file data into a Bigarray.Array1.
 
@@ -691,7 +682,7 @@ let cmd_mount () =
     prerr_endline ("Mounted on " ^ mountpoint)
   else begin
     begin try Unix.mkdir mountpoint 0o0755
-    with Unix.Unix_error(Unix.EEXIST, _, _) -> () end;
+    with Unix.Unix_error (Unix.EEXIST, _, _) -> () end;
     prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
     let fuse_args = [|
       subtype; (*"-f";*)
