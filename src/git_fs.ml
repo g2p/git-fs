@@ -214,42 +214,19 @@ and ref_tree =
   |RefTreeInternalNode of ref_tree_i
   |RefTreeLeaf
 
-type scaffolding = [
-  |`RootScaff
-  |`TreesScaff
-  |`CommitsScaff
-  (* prefix, and a subtree we haven't traversed yet *)
-  |`RefsScaff of string * ref_tree_i
-  |`RefScaff of string
-  |`ReflogScaff of string
-  |`FsSymlink of string
-  |`WorktreeSymlink of hash
-  |`PlainBlob of hash
-  |`ExeBlob of hash
-  |`TreeHash of hash
-  |`CommitHash of hash
-  |`CommitMsg of hash
-  |`CommitDiff of hash
-  |`CommitParents of hash
-  (*| (* gitlink, etc *)*)
-  ]
-
 
 type dir_like = [
   |`RootScaff
   |`TreesScaff
   |`CommitsScaff
+  (* prefix, and a subtree we haven't traversed yet *)
   |`RefsScaff of string * ref_tree_i
   |`TreeHash of hash
   |`CommitHash of hash
   |`RefScaff of hash
   |`ReflogScaff of hash
   |`CommitParents of hash
-  ]
-
-type symlink_like = [
-  |`FsSymlink of string
-  |`WorktreeSymlink of hash
+  (*| (* gitlink, etc *)*)
   ]
 
 type file_like = [
@@ -259,11 +236,16 @@ type file_like = [
   |`ExeBlob of hash
   ]
 
-(* kept as a typecheck *)
-let categorise : scaffolding -> 'a = function
-  |#dir_like as scaff -> `DirLike scaff
-  |#symlink_like as scaff -> `SymlinkLike scaff
-  |#file_like as scaff -> `FileLike scaff
+type symlink_like = [
+  |`FsSymlink of string
+  |`WorktreeSymlink of hash
+  ]
+
+type scaffolding = [
+  |dir_like
+  |file_like
+  |symlink_like
+  ]
 
 
 let rec canonical = function
