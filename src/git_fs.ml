@@ -679,7 +679,7 @@ let cmd_mount () =
   let fs_type = "fuse." ^ subtype in
   if is_mounted fs_type
   then
-    prerr_endline ("Mounted on " ^ mountpoint)
+    prerr_endline (Printf.sprintf "Mounted on %S" mountpoint)
   else begin
     begin try Unix.mkdir mountpoint 0o0755
     with Unix.Unix_error (Unix.EEXIST, _, _) -> () end;
