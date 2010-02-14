@@ -109,6 +109,12 @@ module SubprocessWithBatIO = struct
 
 end
 
+let log =
+  if false then
+    prerr_endline
+  else
+    ignore
+
 let require_normal_exit out_pipe =
   let status = SubprocessWithBatIO.close_process_in out_pipe in
   if status <> Unix.WEXITED 0
@@ -117,7 +123,7 @@ let require_normal_exit out_pipe =
 (* Run a command, return stdout data as a string *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
 let backtick cmd =
-  prerr_endline (Printf.sprintf "Command %S" (BatString.join " " cmd));
+  log (Printf.sprintf "Command %S" (BatString.join " " cmd));
   let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
   let r = BatIO.read_all out_pipe in
   require_normal_exit out_pipe;
@@ -125,7 +131,7 @@ let backtick cmd =
 
 (* Run a command, read the output into a BigArray.Array1. *)
 let subprocess_read_bigarray cmd offset big_array =
-  prerr_endline (Printf.sprintf "Command %S" (BatString.join " " cmd));
+  log (Printf.sprintf "Command %S" (BatString.join " " cmd));
   let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
   let out_fd = SubprocessWithBatIO.descr_of_input out_pipe in
   (* Can't seek a pipe. Read and ignore. *)
@@ -264,8 +270,9 @@ let commit_of_ref ref =
 let tree_of_commit_with_prefix hash prefix =
   (* prefix should be empty or a relative path with no initial slash
    * and no . or .. *)
-  trim_endline (backtick_git [ "rev-parse"; "--revs-only"; "--no-flags";
-  "--verify"; "--quiet"; hash ^ "^{tree}" ^ ":" ^ prefix ])
+  trim_endline (backtick_git [ "rev-parse";
+      "--revs-only"; "--no-flags"; "--verify"; "--quiet";
+      hash ^ "^{tree}" ^ ":" ^ prefix ])
 
 let commit_parents hash =
   let r = BatString.nsplit (backtick_git
@@ -287,7 +294,6 @@ let parent_symlink merged parent_id depth =
   then failwith (Printf.sprintf
         "%S has incorrect syntax for a parent of %S" parent_id merged);
   let suffix = BatString.tail parent_id 41 in
-  prerr_endline suffix;
   let parent_idx = if suffix = "" then 0 else int_of_string suffix in
   let hash = List.nth (commit_parents merged) parent_idx in
   symlink_to_scaff (CommitHash hash) depth
@@ -581,7 +587,7 @@ let do_getattr path =
       raise (Unix.Unix_error (Unix.ENOENT, "stat", path))
 
 let do_opendir path flags =
-  (*prerr_endline ("Path is: " ^ path);*)
+  (*log ("Path is: " ^ path);*)
   try
     let fh, scaff = lookup_and_cache path in
     let r = Some fh in
@@ -604,9 +610,8 @@ let do_readdir path fh =
     let scaff = lookup_fh fh in
     "."::".."::(list_children scaff)
   with Not_found ->
-    prerr_endline (Printf.sprintf "Can't readdir “%S”" path);
-    if true then assert false (* because opendir passed *)
-    else raise (Unix.Unix_error (Unix.ENOENT, "readdir", path))
+    (*log (Printf.sprintf "Can't readdir “%S”" path);*)
+    assert false (* because opendir passed *)
 
 let do_readlink path =
   try
