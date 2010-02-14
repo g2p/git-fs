@@ -141,18 +141,29 @@ let trim_endline str =
   (* XXX not what the spec says, this trims both ends *)
   BatString.trim str
 
-let git_dir_lazy = lazy (
+let abspath path =
+  if not (Filename.is_relative path) then path
+  else (Unix.getcwd ()) ^ "/" ^ path
+
+let git_dir_rel_lazy = lazy (
   let r = trim_endline (backtick ["git"; "rev-parse"; "--git-dir"; ])
   in if r <> "" then r else failwith "Git directory not found."
-)
+  )
+
+(* Must be called before fuse runs and changes cwd to / .
+   libfuse does that when in its default fork mode. *)
+let git_dir_abs_lazy = lazy (
+  let lazy git_dir = git_dir_rel_lazy in
+  abspath git_dir
+  )
 
 let backtick_git cmd =
-  let lazy git_dir = git_dir_lazy in
+  let lazy git_dir = git_dir_abs_lazy in
   let cmd = "git"::"--git-dir"::git_dir::cmd in
   backtick cmd
 
 let subprocess_read_bigarray_git cmd offset big_array =
-  let lazy git_dir = git_dir_lazy in
+  let lazy git_dir = git_dir_abs_lazy in
   let cmd = "git"::"--git-dir"::git_dir::cmd in
   subprocess_read_bigarray cmd offset big_array
 
@@ -656,25 +667,21 @@ let fuse_ops = {
     }
 
 let mountpoint_lazy =
-  lazy (let lazy git_dir = git_dir_lazy in git_dir ^ "/fs")
-
-let abspath path =
-  if not (Filename.is_relative path) then path
-  else (Unix.getcwd ()) ^ "/" ^ path
+  lazy (let lazy git_dir = git_dir_rel_lazy in git_dir ^ "/fs")
 
 let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
-  let lazy git_dir = git_dir_lazy in
+  let lazy git_dir_abs = git_dir_abs_lazy in
   (* fuse doesn't guess the subtype if we give it fsname *)
   let subtype = Filename.basename Sys.argv.(0) in
   begin try Unix.mkdir mountpoint 0o0755
   with Unix.Unix_error(Unix.EEXIST, _, _) -> () end;
   prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
   let fuse_args = [|
-    subtype; "-f";
+    subtype; (*"-f";*)
     "-o"; "ro";
     "-osubtype=" ^ subtype;
-    "-ofsname=" ^ (abspath git_dir); (* XXX needs ","-quoting *)
+    "-ofsname=" ^ git_dir_abs; (* XXX needs ","-quoting *)
     mountpoint;
     |] in
   Fuse.main fuse_args fuse_ops

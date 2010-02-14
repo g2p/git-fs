@@ -1,5 +1,4 @@
-Figure out why it won't work in the background (ie, without fuse option -f).
-Unhelpfully, strace doesn't seem to work well in the background case.
+Nicer singleton behaviour; detect when already running.
 
 Map more stuff
   tags
@@ -37,4 +36,9 @@ This was done at the cost of some deep integration with Unix / BatUnix, unfortun
 Elucidate the stat st_size stuff; fuse sounds like it relies on it.
 Using correct sizes. Fuse relies on it because it does caching, and will
 make bigger read requests if necessary (-o max_readahead).
+
+Figure out why it won't work in the background (ie, without fuse option -f).
+To strace that, better to reattach that run strace in the foreground.
+The problem was that fuse changed directory to / (following standard
+daemon behaviour).
 
