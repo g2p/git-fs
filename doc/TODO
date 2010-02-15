@@ -7,8 +7,9 @@ Map more stuff
     messages
     date-based view
   symbolic refs
-    HEAD, FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
+    FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
     git grep -wl --all-match -e HEAD -e FETCH_HEAD -e ORIG_HEAD -e MERGE_HEAD
+    OTOH non-HEAD symrefs aren't always there, hide them as an impl detail.
   configuration
   remote urls
 
@@ -41,4 +42,6 @@ The problem was that fuse changed directory to / (following standard
 daemon behaviour).
 
 Nicer singleton behaviour; detect when already mounted.
+
+Symbolic refs: the main one, HEAD, is handled.
 

@@ -115,10 +115,12 @@ let log =
   else
     ignore
 
+exception Non_zero_exit of Unix.process_status
+
 let require_normal_exit out_pipe =
   let status = SubprocessWithBatIO.close_process_in out_pipe in
   if status <> Unix.WEXITED 0
-  then failwith "Non-zero exit status"
+  then raise (Non_zero_exit status)
 
 (* Run a command, return stdout data as a string *)
 (* Unlike a shell backtick, doesn't remove trailing newlines *)
@@ -188,11 +190,9 @@ let file_stats = { dir_stats with
   UL.st_perm = 0o400;
   (* /proc uses zero, it works.
    * /sys uses 4k.
-   * zero doesn't work with fuse, at least high-level fuse.
-   * (unless it's cat acting up, but proc indicates otherwise.
-   * strace cat with 0 size someday)
+   * zero doesn't work with fuse, at least high-level fuse;
+   * the reason seems to be fuse prefetching and caching.
    *)
-  (*UL.st_size = Int64.zero;*)
   UL.st_size = Int64.of_int 4096; (* XXX *)
   }
 let blob_stats size is_exe = { file_stats with
@@ -252,7 +252,8 @@ let rec canonical = function
   |`RootScaff -> "."
   |`TreesScaff -> "trees"
   |`RefsScaff (prefix, subtree) ->
-      if prefix = "" then "refs" else "refs" ^ "/" ^ prefix
+      if prefix = "" then "refs" else "refs/" ^ prefix
+  |`RefScaff name -> "refs/" ^ name
   |`CommitsScaff -> "commits"
   |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ hash
   |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ hash
@@ -338,8 +339,6 @@ let rec ref_tree_add tree path =
   |children, name::tl -> (* sort order *)
       (name, RefTreeInternalNode (ref_tree_add [] tl))::children
 
-let ref_tree_cache = ref None
-
 let ref_tree_uncached () =
   let refs = ref_names () in
   let tree = ref [] in
@@ -352,15 +351,21 @@ let ref_tree_uncached () =
   (* Even HEAD doesn't always pass symbolic-ref.
    * Only rev-parse seems foolproof. *)
   (* tree := ref_tree_add !tree ["HEAD"]; *)
-  ref_tree_cache := Some (!tree, Unix.time ());
   !tree
 
-let ref_tree () =
-  match !ref_tree_cache with
-  |None -> ref_tree_uncached ()
-  |Some (cached, tstamp) when tstamp > Unix.time () +. 300. ->
-      ref_tree_uncached () (* every 300s = 5mn *)
+(* Time-based caching.
+   Takes fn: () -> 'a, delay, returns () -> 'a *)
+let with_caching fn delay_float_secs =
+  let cache = ref None in fun () ->
+  match !cache with
+  |None ->
+      let v = fn () in cache := Some (v, Unix.time ()); v
+  |Some (cached, tstamp) when tstamp > Unix.time () +. delay_float_secs ->
+      let v = fn () in cache := Some (v, Unix.time ()); v
   |Some (cached, tstamp) -> cached
+
+let ref_tree =
+  with_caching ref_tree_uncached 300.
 
 
 let reflog_entries name =
@@ -392,8 +397,34 @@ let reflog_entry name child depth =
     symlink_to_scaff (`CommitHash hash) depth
 
 
+let symref_ref_symlink name =
+  let ref = trim_endline (backtick_git [ "symbolic-ref"; "--"; name; ])
+  in symlink_to_scaff (`RefScaff ref) 0
+
+let symref_commit_symlink name =
+  let commit = trim_endline (backtick_git [ "rev-parse"; name; ])
+  in symlink_to_scaff (`CommitHash commit) 0
+
+(* Resolve a symbolic ref.
+   XXX Pointing either to a ref or a commit is weak typing,
+   and bad usability-wise. Unless we make commit ref-like and
+   give it a current/ subfolder, as a symlink pointing to the commit itself.
+   Or make refs commit-like, which is partially done by the worktree symlink
+   refs have.
+   *)
+let symref_symlink_uncached name =
+  try
+    symref_ref_symlink name
+  with
+    Non_zero_exit status -> (* This is the case with a detached HEAD *)
+      symref_commit_symlink name
+
+let head_symlink = with_caching (fun () ->
+  symref_symlink_uncached "HEAD") 300.
+
 (* association list for the fs root *)
-(* takes unit, lazy would also work *)
+(* takes unit, not pure, because branch state and symbolic-ref state
+   may change externally *)
 let root_al () = [
   "trees", `TreesScaff;
   "refs", `RefsScaff ("", ref_tree ());
@@ -401,6 +432,7 @@ let root_al () = [
   "heads", `FsSymlink "refs/refs/heads";
   "remotes", `FsSymlink "refs/refs/remotes";
   "tags", `FsSymlink "refs/refs/tags";
+  "HEAD", head_symlink ();
   ]
 
 
@@ -704,7 +736,7 @@ let cmd_umount () =
   try
     ignore (backtick ["fusermount"; "-u"; "--"; mountpoint])
   with
-    Failure "Non-zero exit status" -> ()
+    Non_zero_exit status -> ()
 
 let cmd_show_mountpoint () =
   let lazy mountpoint = mountpoint_lazy in

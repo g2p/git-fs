@@ -12,6 +12,7 @@ eg reflog messages
 $GIT_DIR/
   fs/
 
+HEAD/ -> a symlink
 branches/ -- git branch -a -- subset of all git refs, only {heads,remotes}
   master/
     REF (name) -- git show

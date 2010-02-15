@@ -9,12 +9,13 @@ trap 'kill $pid' EXIT
 ./git-fs mount & pid=$!
 ! ps -fp "$pid"
 ! ./git-fs
-cat "$(./git-fs show-mountpoint)"/heads/master/worktree/README
+cat "$(./git-fs show-mountpoint)"/HEAD/worktree/README
 cat "$(./git-fs show-mountpoint)"/heads/master/current/msg
 cat "$(./git-fs show-mountpoint)"/heads/master/current/diff
 ! readlink "$(./git-fs show-mountpoint)"/heads/master
 ! cat "$(./git-fs show-mountpoint)"/heads/master
-! ls "$(./git-fs show-mountpoint)"/heads/master/worktree/README/
+! ls "$(./git-fs show-mountpoint)"/HEAD/worktree/README/
+find "$(./git-fs show-mountpoint)"
 tree -al "$(./git-fs show-mountpoint)"
 ./git-fs umount
 ./git-fs umount || true

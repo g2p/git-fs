@@ -29,7 +29,7 @@ Build:
 Usage:
 
     ./git-fs mount
-    cd .git/fs/heads/master/worktree
+    cd .git/fs/HEAD/worktree
     cat README
     cd -
     ./git-fs umount
