@@ -692,9 +692,13 @@ let fuse_ops = {
 let mountpoint_lazy =
   lazy (let lazy git_dir = git_dir_rel_lazy in git_dir ^ "/fs")
 
+let fs_subtype = Filename.basename Sys.argv.(0)
+
+let fs_type = "fuse." ^ fs_subtype
+
 exception Found
 
-let is_mounted fs_type =
+let is_mounted () =
   let lazy mountpoint = mountpoint_lazy in
   let abs_mountpoint = abspath mountpoint in
   let psf_lines = BatFile.lines_of "/proc/self/mountinfo" in
@@ -711,10 +715,7 @@ let is_mounted fs_type =
 let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
   let lazy git_dir_abs = git_dir_abs_lazy in
-  (* fuse doesn't guess the subtype if we give it fsname *)
-  let subtype = Filename.basename Sys.argv.(0) in
-  let fs_type = "fuse." ^ subtype in
-  if is_mounted fs_type
+  if is_mounted ()
   then
     prerr_endline (Printf.sprintf "Mounted on %S" mountpoint)
   else begin
@@ -722,9 +723,10 @@ let cmd_mount () =
     with Unix.Unix_error (Unix.EEXIST, _, _) -> () end;
     prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
     let fuse_args = [|
-      subtype; (*"-f";*)
+      fs_subtype; (*"-f";*)
       "-o"; "ro";
-      "-osubtype=" ^ subtype;
+      (* fuse doesn't guess the subtype anymore, if we give it fsname *)
+      "-osubtype=" ^ fs_subtype;
       "-ofsname=" ^ git_dir_abs; (* XXX needs ","-quoting *)
       mountpoint;
       |] in
@@ -742,8 +744,14 @@ let cmd_show_mountpoint () =
   let lazy mountpoint = mountpoint_lazy in
   print_endline mountpoint
 
+let cmd_is_mounted () =
+  if is_mounted () then
+    exit 0
+  else
+    exit 1
+
 let usage () =
-  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|help]"
+  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|is-mounted|help]"
 
 let cmd_help = usage
 
@@ -756,6 +764,7 @@ let _ =
   |[| _; "mount" |] -> cmd_mount ()
   |[| _; "umount" |] -> cmd_umount ()
   |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
+  |[| _; "is-mounted" |] -> cmd_is_mounted ()
   |[| _; "help" |] -> cmd_help ()
   |[| _; "fuse-help" |] -> cmd_fuse_help () (* For developer use *)
   |_ -> begin usage (); exit 2; end
