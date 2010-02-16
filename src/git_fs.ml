@@ -186,9 +186,9 @@ module Hash : sig
   val of_backtick : string list -> t
 end = struct
   type t = string
-  let re = Str.regexp "^[0-9a-f]+$"
+  let re = Pcre.regexp "^[0-9a-f]{40}$"
   let of_string v =
-    if String.length v = 40 && Str.string_match re v 0 then v
+    if Pcre.pmatch ~rex:re v then v
     else failwith (Printf.sprintf "Invalid hash: %S" v)
   let to_string v = v
   let compare = String.compare
@@ -409,13 +409,17 @@ let reflog_entries_pretty_names name =
     "@{" ^ (Printf.sprintf "%0*d" width i) ^ "}") entries
 
 
-let reflog_regexp = Str.regexp "^\\(.*\\)@{\\([0-9]+\\)}$"
+let reflog_regexp = Pcre.regexp "^\\(.*\\)@{\\([0-9]+\\)}$"
 
 let reflog_entry name child depth =
   let fail () = failwith (Printf.sprintf
         "%S has incorrect syntax for a reflog entry of %S" child name) in
-  if not (Str.string_match reflog_regexp child 0 ) then fail ();
-  if Str.matched_group 1 child <> "" then fail ();
+  let substr = try
+    Pcre.exec ~rex:reflog_regexp child
+  with
+    Not_found -> fail () in
+  let refname = Pcre.get_substring substr 1 in
+  if refname <> "" then fail ();
   let hash = Hash.of_backtick [ "rev-parse";
     "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ]
   in
@@ -487,33 +491,31 @@ let prime_cache path scaff =
     Hashtbl.add fh_data fh scaff;
     (fh, scaff)
 
-let ls_tree_regexp = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000"
+let ls_tree_regexp = Pcre.regexp "(100644 blob|100755 blob|120000 blob|040000 tree) ([0-9a-f]+)\t([^\\x00]+)\\x00"
 
 let tree_children_uncached hash =
   let lines = backtick_git [ "ls-tree";
       "--full-tree"; "-z"; "--"; Hash.to_string hash; ] in
   let rec parse lines offset =
     if String.length lines = offset then []
-    else if not (Str.string_match ls_tree_regexp lines offset)
-    then failwith (
+    else let substrs = try
+      Pcre.exec ~rex:ls_tree_regexp ~pos:offset lines
+    with Not_found -> failwith (
       Printf.sprintf "Ill-formatted ls-tree lines: %S" (
-        BatString.slice ~first:offset lines))
-    else (* XXX not thread-safe, and extremely sensitive to what we call.
-            Str.of_string does matching, can't be interleaved
-            with matched_group or match_end.
-            Switch to PCRE (bonus: quantifiers)? *)
-      let kind_s = Str.matched_group 1 lines in
-      let hash_s = Str.matched_group 2 lines in
-      let name = Str.matched_group 3 lines in
-      let match_end = Str.match_end () in
-      let hash = Hash.of_string hash_s in
-      let scaff = match kind_s with
-      |"100644 blob" -> `PlainBlob hash
-      |"100755 blob" -> `ExeBlob hash
-      |"120000 blob" -> `WorktreeSymlink hash
-      |"040000 tree" -> `TreeHash hash
+        BatString.slice ~first:offset lines)) in
+    match Pcre.get_substrings ~full_match:false substrs
+    with
+      |[| kind_s; hash_s; name |] ->
+        let match_start, match_end = Pcre.get_substring_ofs substrs 0 in
+        let hash = Hash.of_string hash_s in
+        let scaff = match kind_s with
+        |"100644 blob" -> `PlainBlob hash
+        |"100755 blob" -> `ExeBlob hash
+        |"120000 blob" -> `WorktreeSymlink hash
+        |"040000 tree" -> `TreeHash hash
+        |_ -> assert false
+        in (name, scaff)::(parse lines match_end)
       |_ -> assert false
-      in (name, scaff)::(parse lines match_end)
   in parse lines 0
 
 let tree_children, known_tree_hashes =

@@ -10,6 +10,7 @@ USE_OCAMLFIND = true
 OCAMLPACKS[] +=
    batteries
    bigarray
+   pcre
 
 #OCAMLFINDFLAGS +=
 
