@@ -175,12 +175,33 @@ let subprocess_read_bigarray_git cmd offset big_array =
   let cmd = "git"::"--git-dir"::git_dir::cmd in
   subprocess_read_bigarray cmd offset big_array
 
+module Hash : sig
+  type t
+  val of_string : string -> t
+  val to_string : t -> string
+  (* compare is so we can have HashSet
+     Is there a way to refer to the current module?
+     We could refer to that instead and maybe make compare private. *)
+  val compare : t -> t -> int
+  val of_backtick : string list -> t
+end = struct
+  type t = string
+  let re = Str.regexp "^[0-9a-f]+$"
+  let of_string v =
+    if String.length v = 40 && Str.string_match re v 0 then v
+    else failwith (Printf.sprintf "Invalid hash: %S" v)
+  let to_string v = v
+  let compare = String.compare
+  let of_backtick cmd =
+    of_string (trim_endline (backtick_git cmd))
+end
+
 let describe_tag hash =
   () (* git cat-file tag demo-tag *)
 
 let symlink_target hash =
   (* XXX may be abs or rel, and may go outside the worktree *)
-  backtick_git [ "cat-file"; "blob"; hash; ]
+  backtick_git [ "cat-file"; "blob"; Hash.to_string hash; ]
 
 
 let dir_stats = Unix.LargeFile.stat "." (* XXX *)
@@ -207,7 +228,6 @@ let symlink_stats = { dir_stats with
   }
 
 
-type hash = string
 
 type ref_tree_i = (string * ref_tree) list
 and ref_tree =
@@ -221,24 +241,24 @@ type dir_like = [
   |`CommitsScaff
   (* prefix, and a subtree we haven't traversed yet *)
   |`RefsScaff of string * ref_tree_i
-  |`TreeHash of hash
-  |`CommitHash of hash
-  |`RefScaff of hash
-  |`ReflogScaff of hash
-  |`CommitParents of hash
+  |`TreeHash of Hash.t
+  |`CommitHash of Hash.t
+  |`RefScaff of string
+  |`ReflogScaff of string
+  |`CommitParents of Hash.t
   (*| (* gitlink, etc *)*)
   ]
 
 type file_like = [
-  |`CommitMsg of hash
-  |`CommitDiff of hash
-  |`PlainBlob of hash
-  |`ExeBlob of hash
+  |`CommitMsg of Hash.t
+  |`CommitDiff of Hash.t
+  |`PlainBlob of Hash.t
+  |`ExeBlob of Hash.t
   ]
 
 type symlink_like = [
   |`FsSymlink of string
-  |`WorktreeSymlink of hash
+  |`WorktreeSymlink of Hash.t
   ]
 
 type scaffolding = [
@@ -255,8 +275,8 @@ let rec canonical = function
       if prefix = "" then "refs" else "refs/" ^ prefix
   |`RefScaff name -> "refs/" ^ name
   |`CommitsScaff -> "commits"
-  |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ hash
-  |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ hash
+  |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ (Hash.to_string hash)
+  |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ (Hash.to_string hash)
 
 let rec parents_depth depth =
   if depth = 0 then ""
@@ -272,42 +292,46 @@ let hashtable_keys htbl =
   Hashtbl.iter (fun k v -> acc := k::!acc) htbl;
   !acc
 
-let known_commit_hashes_ = ref BatSet.StringSet.empty
+module HashSet = BatSet.Make (Hash)
+
+let known_commit_hashes_ = ref HashSet.empty
 
 let known_commit_hashes () =
-  BatSet.StringSet.elements !known_commit_hashes_
+  HashSet.elements !known_commit_hashes_
 
 let commit_of_ref ref =
-  let r = trim_endline (backtick_git [ "show-ref"; "--hash"; "--verify"; "--"; ref ]) in
-  known_commit_hashes_ := BatSet.StringSet.add r !known_commit_hashes_;
+  let r = Hash.of_backtick [ "show-ref"; "--hash"; "--verify"; "--"; ref ] in
+  known_commit_hashes_ := HashSet.add r !known_commit_hashes_;
   r
 
 let tree_of_commit_with_prefix hash prefix =
   (* prefix should be empty or a relative path with no initial slash
    * and no . or .. *)
-  trim_endline (backtick_git [ "rev-parse";
+  Hash.of_backtick [ "rev-parse";
       "--revs-only"; "--no-flags"; "--verify"; "--quiet";
-      hash ^ "^{tree}" ^ ":" ^ prefix ])
+      (Hash.to_string hash) ^ "^{tree}" ^ ":" ^ prefix ]
 
 let commit_parents hash =
-  let r = BatString.nsplit (backtick_git
-    [ "log"; "-n1"; "--format=format:%P"; hash; ]) " "
+  let r = List.map Hash.of_string (BatString.nsplit (backtick_git
+    [ "log"; "-n1"; "--format=format:%P"; Hash.to_string hash; ]) " ")
   in List.iter (fun h ->
-    known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
+    known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
     r;
   r
 
 let commit_parents_pretty_names hash =
+  let hash_s = Hash.to_string hash in
   match commit_parents hash with
   |[] -> []
-  |p0::tl -> (hash ^ "^")::(BatList.mapi (fun i h ->
-      hash ^ "^" ^ (string_of_int (i+1)))
+  |p0::tl -> (hash_s ^ "^")::(BatList.mapi (fun i h ->
+      hash_s ^ "^" ^ (string_of_int (i+1)))
       tl)
 
 let parent_symlink merged parent_id depth =
-  if not (BatString.starts_with parent_id (merged ^ "^"))
+  let merged_s = Hash.to_string merged in
+  if not (BatString.starts_with parent_id (merged_s ^ "^"))
   then failwith (Printf.sprintf
-        "%S has incorrect syntax for a parent of %S" parent_id merged);
+        "%S has incorrect syntax for a parent of %S" parent_id merged_s);
   let suffix = BatString.tail parent_id 41 in
   let parent_idx = if suffix = "" then 0 else int_of_string suffix in
   let hash = List.nth (commit_parents merged) parent_idx in
@@ -371,8 +395,9 @@ let ref_tree =
 let reflog_entries name =
   let r = List.filter (fun s -> s <> "") (
     BatString.nsplit (backtick_git [ "rev-list"; "-g"; name; ]) "\n")
-  in List.iter (fun h ->
-    known_commit_hashes_ := BatSet.StringSet.add h !known_commit_hashes_)
+  in List.iter (fun h_s ->
+    let h = Hash.of_string h_s in
+    known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
     r;
   r
 
@@ -391,8 +416,8 @@ let reflog_entry name child depth =
         "%S has incorrect syntax for a reflog entry of %S" child name) in
   if not (Str.string_match reflog_regexp child 0 ) then fail ();
   if Str.matched_group 1 child <> "" then fail ();
-  let hash = trim_endline (backtick_git [ "rev-parse";
-    "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ])
+  let hash = Hash.of_backtick [ "rev-parse";
+    "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ]
   in
     symlink_to_scaff (`CommitHash hash) depth
 
@@ -402,7 +427,7 @@ let symref_ref_symlink name =
   in symlink_to_scaff (`RefScaff ref) 0
 
 let symref_commit_symlink name =
-  let commit = trim_endline (backtick_git [ "rev-parse"; name; ])
+  let commit = Hash.of_backtick [ "rev-parse"; name; ]
   in symlink_to_scaff (`CommitHash commit) 0
 
 (* Resolve a symbolic ref.
@@ -465,24 +490,30 @@ let prime_cache path scaff =
 let ls_tree_regexp = Str.regexp "\\(100644 blob\\|100755 blob\\|120000 blob\\|040000 tree\\) \\([0-9a-f]+\\)\t\\([^\000]+\\)\000"
 
 let tree_children_uncached hash =
-  let lines = backtick_git [ "ls-tree"; "--full-tree"; "-z"; "--"; hash; ] in
+  let lines = backtick_git [ "ls-tree";
+      "--full-tree"; "-z"; "--"; Hash.to_string hash; ] in
   let rec parse lines offset =
     if String.length lines = offset then []
     else if not (Str.string_match ls_tree_regexp lines offset)
     then failwith (
       Printf.sprintf "Ill-formatted ls-tree lines: %S" (
         BatString.slice ~first:offset lines))
-    else (* XXX not thread-safe *)
+    else (* XXX not thread-safe, and extremely sensitive to what we call.
+            Str.of_string does matching, can't be interleaved
+            with matched_group or match_end.
+            Switch to PCRE (bonus: quantifiers)? *)
       let kind_s = Str.matched_group 1 lines in
-      let hash = Str.matched_group 2 lines in
+      let hash_s = Str.matched_group 2 lines in
       let name = Str.matched_group 3 lines in
+      let match_end = Str.match_end () in
+      let hash = Hash.of_string hash_s in
       let scaff = match kind_s with
       |"100644 blob" -> `PlainBlob hash
       |"100755 blob" -> `ExeBlob hash
       |"120000 blob" -> `WorktreeSymlink hash
       |"040000 tree" -> `TreeHash hash
       |_ -> assert false
-      in (name, scaff)::(parse lines (Str.match_end ()))
+      in (name, scaff)::(parse lines match_end)
   in parse lines 0
 
 let tree_children, known_tree_hashes =
@@ -507,14 +538,15 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
   match scaff with
   |#dir_like as scaff -> begin match scaff with
     |`RootScaff -> List.assoc child (root_al ())
-    |`TreesScaff -> `TreeHash child (* XXX should check for existence *)
+    |`TreesScaff ->
+        `TreeHash (Hash.of_string child) (* XXX should check for existence *)
     |`RefsScaff (prefix, children) -> (
       let pf2 = if prefix = "" then child else prefix ^ "/" ^ child in
         match List.assoc child children with
         |RefTreeLeaf -> `RefScaff pf2
         |RefTreeInternalNode children -> `RefsScaff (pf2, children)
         )
-    |`CommitsScaff -> `CommitHash child
+    |`CommitsScaff -> `CommitHash (Hash.of_string child)
     |`TreeHash hash -> tree_child hash child
     |`ReflogScaff name -> reflog_entry name child (2 +
         List.length (BatString.nsplit name "/"))
@@ -546,9 +578,9 @@ let list_children (scaff : scaffolding) =
     |`RootScaff ->
         List.map fst (root_al ())
     |`TreesScaff -> (* Not complete, but we won't scan the whole repo here. *)
-        known_tree_hashes ()
-    |`CommitsScaff ->
-        known_commit_hashes () (* Not complete either. *)
+        List.map Hash.to_string (known_tree_hashes ())
+    |`CommitsScaff -> (* Not complete either. *)
+        List.map Hash.to_string (known_commit_hashes ())
     |`RefsScaff (prefix, children) ->
         List.map fst children
     |`RefScaff name -> [ "current"; "worktree"; "reflog"; ]
@@ -590,7 +622,8 @@ let lookup_and_cache caller path =
 
 
 let blob_size_uncached hash =
-  Int64.of_string (trim_endline (backtick_git [ "cat-file"; "-s"; hash; ]))
+  Int64.of_string (trim_endline (backtick_git [ "cat-file";
+      "-s"; Hash.to_string hash; ]))
 
 let blob_size =
   let cache = Hashtbl.create 16
@@ -666,14 +699,14 @@ let do_read path buf ofs fh =
     match scaff with
     |#file_like as scaff -> begin match scaff with
       |`PlainBlob hash |`ExeBlob hash ->
-          subprocess_read_bigarray_git [ "cat-file"; "blob"; hash; ] ofs buf
+          subprocess_read_bigarray_git [ "cat-file"; "blob"; Hash.to_string hash; ] ofs buf
       |`CommitMsg hash ->
           (* Not exactly the raw message, but there's no api to get it.
            * %s and %b don't go far. There's rewrapping and stuff. *)
-          subprocess_read_bigarray_git [ "log"; "--max-count=1"; hash; ] ofs buf
+          subprocess_read_bigarray_git [ "log"; "--max-count=1"; Hash.to_string hash; ] ofs buf
       |`CommitDiff hash ->
         subprocess_read_bigarray_git [ "format-patch";
-          "-C"; "--max-count=1"; "--stdout"; hash; ] ofs buf
+          "-C"; "--max-count=1"; "--stdout"; Hash.to_string hash; ] ofs buf
     end
     |#scaffolding -> assert false (* we filtered at fopen time *)
     with Not_found ->
