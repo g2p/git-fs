@@ -122,14 +122,20 @@ let require_normal_exit out_pipe =
   if status <> Unix.WEXITED 0
   then raise (Non_zero_exit status)
 
+let trim_endline str =
+  (* XXX not what the spec says, this trims both ends *)
+  BatString.trim str
+
 (* Run a command, return stdout data as a string *)
-(* Unlike a shell backtick, doesn't remove trailing newlines *)
-let backtick cmd =
-  log (Printf.sprintf "Command %S" (BatString.join " " cmd));
-  let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
-  let r = BatIO.read_all out_pipe in
-  require_normal_exit out_pipe;
-  r
+let backtick =
+  let trim_endline_ = trim_endline in (* keep the original trim_endline *)
+  let backtick ?(trim_endline=false) cmd =
+    log (Printf.sprintf "Command %S" (BatString.join " " cmd));
+    let out_pipe = SubprocessWithBatIO.open_process_in (Array.of_list cmd) in
+    let r = BatIO.read_all out_pipe in
+    require_normal_exit out_pipe;
+    if trim_endline then trim_endline_ r else r
+  in backtick
 
 (* Run a command, read the output into a BigArray.Array1. *)
 let subprocess_read_bigarray cmd offset big_array =
@@ -145,16 +151,12 @@ let subprocess_read_bigarray cmd offset big_array =
   r
 
 
-let trim_endline str =
-  (* XXX not what the spec says, this trims both ends *)
-  BatString.trim str
-
 let abspath path =
   if not (Filename.is_relative path) then path
   else (Unix.getcwd ()) ^ "/" ^ path
 
 let git_dir_rel_lazy = lazy (
-  let r = trim_endline (backtick ["git"; "rev-parse"; "--git-dir"; ])
+  let r = backtick ~trim_endline:true ["git"; "rev-parse"; "--git-dir"; ]
   in if r <> "" then r else failwith "Git directory not found."
   )
 
@@ -165,10 +167,10 @@ let git_dir_abs_lazy = lazy (
   abspath git_dir
   )
 
-let backtick_git cmd =
+let backtick_git ?(trim_endline=false) cmd =
   let lazy git_dir = git_dir_abs_lazy in
   let cmd = "git"::"--git-dir"::git_dir::cmd in
-  backtick cmd
+  backtick ~trim_endline cmd
 
 let subprocess_read_bigarray_git cmd offset big_array =
   let lazy git_dir = git_dir_abs_lazy in
@@ -193,7 +195,7 @@ end = struct
   let to_string v = v
   let compare = String.compare
   let of_backtick cmd =
-    of_string (trim_endline (backtick_git cmd))
+    of_string (backtick_git ~trim_endline:true cmd)
 end
 
 let describe_tag hash =
@@ -427,7 +429,7 @@ let reflog_entry name child depth =
 
 
 let symref_ref_symlink name =
-  let ref = trim_endline (backtick_git [ "symbolic-ref"; "--"; name; ])
+  let ref = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
   in symlink_to_scaff (`RefScaff ref) 0
 
 let symref_commit_symlink name =
@@ -624,8 +626,8 @@ let lookup_and_cache caller path =
 
 
 let blob_size_uncached hash =
-  Int64.of_string (trim_endline (backtick_git [ "cat-file";
-      "-s"; Hash.to_string hash; ]))
+  Int64.of_string (backtick_git ~trim_endline:true [ "cat-file";
+      "-s"; Hash.to_string hash; ])
 
 let blob_size =
   let cache = Hashtbl.create 16
