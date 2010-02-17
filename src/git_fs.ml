@@ -409,7 +409,7 @@ let reflog_entries_pretty_names name =
     "@{" ^ (Printf.sprintf "%0*d" width i) ^ "}") entries
 
 
-let reflog_regexp = Pcre.regexp "^\\(.*\\)@{\\([0-9]+\\)}$"
+let reflog_regexp = Pcre.regexp "^(.*)@{([0-9]+)}$"
 
 let reflog_entry name child depth =
   let fail () = failwith (Printf.sprintf
