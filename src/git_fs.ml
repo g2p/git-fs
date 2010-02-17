@@ -339,17 +339,15 @@ let parent_symlink merged parent_id depth =
   let hash = List.nth (commit_parents merged) parent_idx in
   symlink_to_scaff (`CommitHash hash) depth
 
+let lines_of_string str =
+  Pcre.split ~pat:"\n" str
+
 let ref_names () =
   (**
    * This result shouldn't be cached, unlike most of the git data model
    * it's not a functional data structure and may mutate.
    *)
-  List.filter (fun s -> s <> "") (
-    BatString.nsplit (
-      backtick_git [ "for-each-ref"; "--format"; "%(refname)"; ]
-      )
-    "\n"
-    )
+  lines_of_string (backtick_git [ "for-each-ref"; "--format"; "%(refname)"; ])
 
 let rec ref_tree_add tree path =
   (* this traversal relies on the sort order *)
@@ -395,8 +393,7 @@ let ref_tree =
 
 
 let reflog_entries name =
-  let r = List.filter (fun s -> s <> "") (
-    BatString.nsplit (backtick_git [ "rev-list"; "-g"; name; ]) "\n")
+  let r = lines_of_string (backtick_git [ "rev-list"; "-g"; name; ])
   in List.iter (fun h_s ->
     let h = Hash.of_string h_s in
     known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
