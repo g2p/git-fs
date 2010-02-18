@@ -239,7 +239,7 @@ and ref_tree =
 
 (* prefix, and a subtree we haven't traversed yet *)
 type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
-type ref_scaff = { ref_depth: int; refname: string; }
+type ref_scaff = { ref_depth: int; refname: string; ref_reflog_name: string; }
 type reflog_scaff = { reflog_depth: int; reflog_name: string; }
 
 type dir_like = [
@@ -433,8 +433,7 @@ let reflog_entry name child depth =
 
 let symref_ref name =
   let refname = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
-  in let depth = List.length (BatString.nsplit name "/")
-  in symlink_to_scaff (`RefScaff { refname = refname; ref_depth = depth; }) 0
+  in `RefScaff { refname = refname; ref_depth = 0; ref_reflog_name = name; }
 
 let symref_commit name =
   let commit = Hash.of_backtick [ "rev-parse"; name; ]
@@ -551,8 +550,8 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
       begin
         let prefix1 = if prefix = "" then child else prefix ^ "/" ^ child
         in match List.assoc child children with
-          |RefTreeLeaf -> `RefScaff {
-              refname = prefix1; ref_depth = depth + 1; }
+          |RefTreeLeaf -> `RefScaff { refname = prefix1;
+              ref_depth = depth + 1; ref_reflog_name = prefix1; }
           |RefTreeInternalNode children -> `RefsScaff {
               prefix = prefix1; subtree = children; refs_depth = depth + 1; }
         end
@@ -562,7 +561,8 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
         reflog_entry name child (depth + 1)
     |`RefScaff { refname = name; ref_depth = depth; } when child = "current" ->
         commit_symlink_of_ref name (depth + 1)
-    |`RefScaff { refname = name; ref_depth = depth; } when child = "reflog" ->
+    |`RefScaff {
+        ref_reflog_name = name; ref_depth = depth; } when child = "reflog" ->
         `ReflogScaff { reflog_name = name; reflog_depth = depth + 1; }
     |`RefScaff _ when child = "worktree" ->
         `FsSymlink "current/worktree"
