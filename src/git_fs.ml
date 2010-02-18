@@ -187,7 +187,7 @@ module Hash : sig
   val compare : t -> t -> int
   val of_backtick : string list -> t
 end = struct
-  type t = string
+  type t = string (* we could parse the hex, if mem use was a concern *)
   let re = Pcre.regexp "^[0-9a-f]{40}$"
   let of_string v =
     if Pcre.pmatch ~rex:re v then v
@@ -373,7 +373,7 @@ let ref_tree_uncached () =
     refs;
   (* symbolic refs don't pass show-ref. Different beast. *)
   (* Even HEAD doesn't always pass symbolic-ref.
-   * Only rev-parse seems foolproof. *)
+     Only rev-parse seems foolproof. *)
   (* tree := ref_tree_add !tree ["HEAD"]; *)
   !tree
 
@@ -425,11 +425,11 @@ let reflog_entry name child depth =
     symlink_to_scaff (`CommitHash hash) depth
 
 
-let symref_ref_symlink name =
+let symref_ref name =
   let ref = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
   in symlink_to_scaff (`RefScaff ref) 0
 
-let symref_commit_symlink name =
+let symref_commit name =
   let commit = Hash.of_backtick [ "rev-parse"; name; ]
   in symlink_to_scaff (`CommitHash commit) 0
 
@@ -440,15 +440,14 @@ let symref_commit_symlink name =
    Or make refs commit-like, which is partially done by the worktree symlink
    refs have.
    *)
-let symref_symlink_uncached name =
+let symref_uncached name =
   try
-    symref_ref_symlink name
+    symref_ref name
   with
     Non_zero_exit status -> (* This is the case with a detached HEAD *)
-      symref_commit_symlink name
+      symref_commit name
 
-let head_symlink = with_caching (fun () ->
-  symref_symlink_uncached "HEAD") 300.
+let head_symref = with_caching (fun () -> symref_uncached "HEAD") 300.
 
 (* association list for the fs root *)
 (* takes unit, not pure, because branch state and symbolic-ref state
@@ -460,7 +459,7 @@ let root_al () = [
   "heads", `FsSymlink "refs/refs/heads";
   "remotes", `FsSymlink "refs/refs/remotes";
   "tags", `FsSymlink "refs/refs/tags";
-  "HEAD", head_symlink ();
+  "HEAD", head_symref ();
   ]
 
 
