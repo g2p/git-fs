@@ -237,16 +237,20 @@ and ref_tree =
   |RefTreeLeaf
 
 
+(* prefix, and a subtree we haven't traversed yet *)
+type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
+type ref_scaff = { ref_depth: int; refname: string; }
+type reflog_scaff = { reflog_depth: int; reflog_name: string; }
+
 type dir_like = [
   |`RootScaff
   |`TreesScaff
   |`CommitsScaff
-  (* prefix, and a subtree we haven't traversed yet *)
-  |`RefsScaff of string * ref_tree_i
+  |`RefsScaff of refs_scaff
   |`TreeHash of Hash.t
   |`CommitHash of Hash.t
-  |`RefScaff of string
-  |`ReflogScaff of string
+  |`RefScaff of ref_scaff
+  |`ReflogScaff of reflog_scaff
   |`CommitParents of Hash.t
   (*| (* gitlink, etc *)*)
   ]
@@ -273,9 +277,9 @@ type scaffolding = [
 let rec canonical = function
   |`RootScaff -> "."
   |`TreesScaff -> "trees"
-  |`RefsScaff (prefix, subtree) ->
+  |`RefsScaff { prefix = prefix } ->
       if prefix = "" then "refs" else "refs/" ^ prefix
-  |`RefScaff name -> "refs/" ^ name
+  |`RefScaff { refname = name } -> "refs/" ^ name
   |`CommitsScaff -> "commits"
   |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ (Hash.to_string hash)
   |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ (Hash.to_string hash)
@@ -426,8 +430,9 @@ let reflog_entry name child depth =
 
 
 let symref_ref name =
-  let ref = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
-  in symlink_to_scaff (`RefScaff ref) 0
+  let refname = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
+  in let depth = List.length (BatString.nsplit name "/")
+  in symlink_to_scaff (`RefScaff { refname = refname; ref_depth = depth; }) 0
 
 let symref_commit name =
   let commit = Hash.of_backtick [ "rev-parse"; name; ]
@@ -454,7 +459,7 @@ let head_symref = with_caching (fun () -> symref_uncached "HEAD") 300.
    may change externally *)
 let root_al () = [
   "trees", `TreesScaff;
-  "refs", `RefsScaff ("", ref_tree ());
+  "refs", `RefsScaff { prefix = ""; subtree = ref_tree (); refs_depth = 0; };
   "commits", `CommitsScaff;
   "heads", `FsSymlink "refs/refs/heads";
   "remotes", `FsSymlink "refs/refs/remotes";
@@ -540,23 +545,26 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
     |`RootScaff -> List.assoc child (root_al ())
     |`TreesScaff ->
         `TreeHash (Hash.of_string child) (* XXX should check for existence *)
-    |`RefsScaff (prefix, children) -> (
-      let pf2 = if prefix = "" then child else prefix ^ "/" ^ child in
-        match List.assoc child children with
-        |RefTreeLeaf -> `RefScaff pf2
-        |RefTreeInternalNode children -> `RefsScaff (pf2, children)
-        )
+    |`RefsScaff { prefix = prefix; subtree = children; refs_depth = depth; } ->
+      begin
+        let prefix1 = if prefix = "" then child else prefix ^ "/" ^ child
+        in match List.assoc child children with
+          |RefTreeLeaf -> `RefScaff {
+              refname = prefix1; ref_depth = depth + 1; }
+          |RefTreeInternalNode children -> `RefsScaff {
+              prefix = prefix1; subtree = children; refs_depth = depth + 1; }
+        end
     |`CommitsScaff -> `CommitHash (Hash.of_string child)
     |`TreeHash hash -> tree_child hash child
-    |`ReflogScaff name -> reflog_entry name child (2 +
-        List.length (BatString.nsplit name "/"))
-
-    |`RefScaff name when child = "current" ->
-        commit_symlink_of_ref name (1 + List.length (BatString.nsplit name "/"))
-    |`RefScaff name when child = "worktree" ->
+    |`ReflogScaff { reflog_name = name; reflog_depth = depth; } ->
+        reflog_entry name child (depth + 1)
+    |`RefScaff { refname = name; ref_depth = depth; } when child = "current" ->
+        commit_symlink_of_ref name (depth + 1)
+    |`RefScaff { refname = name; ref_depth = depth; } when child = "reflog" ->
+        `ReflogScaff { reflog_name = name; reflog_depth = depth + 1; }
+    |`RefScaff _ when child = "worktree" ->
         `FsSymlink "current/worktree"
-    |`RefScaff name when child = "reflog" -> `ReflogScaff name
-    |`RefScaff name -> raise Not_found
+    |`RefScaff _ -> raise Not_found
 
     |`CommitHash hash when child = "msg" -> `CommitMsg hash
     |`CommitHash hash when child = "diff" -> `CommitDiff hash
@@ -581,11 +589,11 @@ let list_children (scaff : scaffolding) =
         List.map Hash.to_string (known_tree_hashes ())
     |`CommitsScaff -> (* Not complete either. *)
         List.map Hash.to_string (known_commit_hashes ())
-    |`RefsScaff (prefix, children) ->
+    |`RefsScaff { subtree = children } ->
         List.map fst children
-    |`RefScaff name -> [ "current"; "worktree"; "reflog"; ]
+    |`RefScaff _ -> [ "current"; "worktree"; "reflog"; ]
     |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
-    |`ReflogScaff name -> reflog_entries_pretty_names name
+    |`ReflogScaff { reflog_name = name } -> reflog_entries_pretty_names name
     |`TreeHash hash -> tree_children_names hash
     |`CommitParents hash -> commit_parents_pretty_names hash
   end
