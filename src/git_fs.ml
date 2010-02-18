@@ -397,6 +397,8 @@ let ref_tree =
 
 
 let reflog_entries name =
+  (* XXX There's something very wrong when name is a tag.
+     This appears to be a git bug. *)
   let r = lines_of_string (backtick_git [ "rev-list"; "-g"; name; ])
   in List.iter (fun h_s ->
     let h = Hash.of_string h_s in
@@ -692,9 +694,7 @@ let do_fopen path flags =
   let fh, scaff = lookup_and_cache "fopen" path in
   match scaff with
   |#file_like -> Some fh
-  (* |`FsSymlink _ -> () *) (* our symlinks all point to directories *)
-  (* XXX Maybe introduce different symlinks for our hashlinks
-   * and the symlinks git repos can contain. *)
+  (* symlinks are resolved on the fuse size, we never see them opened. *)
   |#scaffolding -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
 
 (* Read file data into a Bigarray.Array1.

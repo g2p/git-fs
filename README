@@ -6,6 +6,13 @@ git-fs lets you access the git filesystem as a normal filesystem.
 
 Currently it lets you browse branches, reflogs, commits and worktrees.
 
+When to use it
+--------------
+
+When you wonder what a file looks like in another branch, or a few versions
+ago, or in a remote repository, you can call `git fs`, browse to the right
+branch or reflog entry, and display the file.
+
 Building and using git-fs
 -------------------------
 
