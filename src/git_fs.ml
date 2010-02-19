@@ -462,13 +462,13 @@ let log_entry name hash child depth =
 (* takes unit, not pure, because branch state and symbolic-ref state
    may change externally *)
 let root_al () = [
-  "trees", `TreesScaff;
-  "refs", `RefsScaff { prefix = ""; subtree = ref_tree (); refs_depth = 0; };
-  "commits", `CommitsScaff;
   "heads", `FsSymlink "refs/refs/heads";
   "remotes", `FsSymlink "refs/refs/remotes";
   "tags", `FsSymlink "refs/refs/tags";
   "HEAD", `FsSymlink "refs/HEAD";
+  "trees", `TreesScaff;
+  "commits", `CommitsScaff;
+  "refs", `RefsScaff { prefix = ""; subtree = ref_tree (); refs_depth = 0; };
   ]
 
 
@@ -603,7 +603,7 @@ let list_children (scaff : scaffolding) =
         List.map Hash.to_string (known_commit_hashes ())
     |`RefsScaff { subtree = children } ->
         List.map fst children
-    |`RefScaff _ -> [ "current"; "worktree"; "reflog"; "log"; ]
+    |`RefScaff _ -> [ "current"; "worktree"; "log"; "reflog"; ]
     |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
     |`ReflogScaff { log_name = name; log_hash = hash; } ->
         reflog_entries_pretty_names name hash
