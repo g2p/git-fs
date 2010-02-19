@@ -285,8 +285,7 @@ let rec canonical = function
   |`TreesScaff -> "trees"
   |`RefsScaff { prefix = prefix } ->
       if prefix = "" then "refs" else "refs/" ^ prefix
-  (* Complicated now that we handle symrefs here: *)
-  (*|`RefScaff { refname = name } -> "refs/" ^ name*)
+  |`RefScaff { ref_reflog_name = name } -> "refs/" ^ name
   |`CommitsScaff -> "commits"
   |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ (Hash.to_string hash)
   |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ (Hash.to_string hash)
@@ -378,10 +377,8 @@ let ref_tree_uncached () =
     tree := ref_tree_add !tree refpath hash;
     )
     refs;
-  (* symbolic refs don't pass show-ref. Different beast. *)
-  (* When detached, they don't pass symbolic-ref either. *)
-  (* Reinstate this now that we don't use show-ref? *)
-  (* tree := ref_tree_add !tree ["HEAD"] (Hash.of_rev_parse "HEAD"); *)
+  (* XXX Assuming there is a HEAD *)
+  tree := ref_tree_add !tree ["HEAD"] (Hash.of_rev_parse "HEAD");
   !tree
 
 (* Time-based caching.
@@ -399,28 +396,6 @@ let ref_tree =
   with_caching ref_tree_uncached 300.
 
 exception Found_hash of Hash.t
-
-let hash_of_ref ref =
-  (* tree lookup *)
-  (* should have thougt of keeping the non-treefied list before coding that. *)
-  (* the notfound exceptions would mean a change between calling
-     for-each-ref and symbolic-ref HEAD, or a broken HEAD.
-     XXX They would make the root unavailable, not just the HEAD directory. *)
-  let tree = ref_tree () in
-  let ref_l = BatString.nsplit ref "/" in
-  let ref_n = List.length ref_l in
-  try
-    let _ = List.fold_left
-    begin fun (tree, left) child ->
-      match List.assoc child tree with
-        |RefTreeInternalNode children -> (children, left - 1)
-        |RefTreeLeaf hash ->
-            if left = 1
-            then raise (Found_hash hash)
-            else raise Not_found (* looking for a/b/c when only a/b exists *)
-    end (tree, ref_n) ref_l
-    in raise Not_found (* looking for a/b when only a/b/c exist *)
-  with Found_hash hash -> hash
 
 let parse_rev_list cmd =
   let r = lines_of_string (backtick_git cmd)
@@ -483,31 +458,6 @@ let log_entry name hash child depth =
   in symlink_to_scaff (`CommitHash hash) depth
 
 
-let symref_ref name =
-  let refname = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
-  in let hash = hash_of_ref refname
-  in `RefScaff { ref_hash = hash; ref_depth = 0; ref_reflog_name = name; }
-
-let symref_commit name =
-  let commit = Hash.of_rev_parse name
-  in `RefScaff { ref_hash = commit; ref_depth = 0; ref_reflog_name = name; }
-
-(* Resolve a symbolic ref.
-   XXX Pointing either to a ref or a commit is weak typing,
-   and bad usability-wise. Unless we make commit ref-like and
-   give it a current/ subfolder, as a symlink pointing to the commit itself.
-   Or make refs commit-like, which is partially done by the worktree symlink
-   refs have.
-   *)
-let symref_uncached name =
-  try
-    symref_ref name
-  with
-    Non_zero_exit status -> (* This is the case with a detached HEAD *)
-      symref_commit name
-
-let head_symref = with_caching (fun () -> symref_uncached "HEAD") 300.
-
 (* association list for the fs root *)
 (* takes unit, not pure, because branch state and symbolic-ref state
    may change externally *)
@@ -518,7 +468,7 @@ let root_al () = [
   "heads", `FsSymlink "refs/refs/heads";
   "remotes", `FsSymlink "refs/refs/remotes";
   "tags", `FsSymlink "refs/refs/tags";
-  "HEAD", head_symref ();
+  "HEAD", `FsSymlink "refs/HEAD";
   ]
 
 
