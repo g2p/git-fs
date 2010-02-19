@@ -4,8 +4,6 @@ git fs status: display if currently mounted.
 Distinct from git fs is-mounted, which uses the exit status and is
 meant to be machine-readable for prompts and the like.
 
-Make detached heads consistent with normal symbolic refs.
-
 Map more stuff
   tags
     descriptions
@@ -53,5 +51,8 @@ Nicer singleton behaviour; detect when already mounted.
 
 Symbolic refs: the main one, HEAD, is handled.
 
-Symbolic refs with their own reflog, except with a detached HEAD.
+Symbolic refs with their own reflog, both for normal symrefs
+and detached HEADs.
+
+Logs are mapped.
 

@@ -186,6 +186,7 @@ module Hash : sig
      We could refer to that instead and maybe make compare private. *)
   val compare : t -> t -> int
   val of_backtick : string list -> t
+  val of_rev_parse : string -> t
 end = struct
   type t = string (* we could parse the hex, if mem use was a concern *)
   let re = Pcre.regexp "^[0-9a-f]{40}$"
@@ -196,6 +197,9 @@ end = struct
   let compare = String.compare
   let of_backtick cmd =
     of_string (backtick_git ~trim_endline:true cmd)
+  let of_rev_parse name =
+    of_backtick [ "rev-parse";
+        "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name; ]
 end
 
 let describe_tag hash =
@@ -240,7 +244,8 @@ and ref_tree =
 (* prefix, and a subtree we haven't traversed yet *)
 type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
 type ref_scaff = { ref_depth: int; ref_hash: Hash.t; ref_reflog_name: string; }
-type reflog_scaff = { reflog_depth: int; reflog_name: string; }
+(* both log and reflog, they have so much in common *)
+type log_scaff = { log_depth: int; log_hash: Hash.t; log_name: string; }
 
 type dir_like = [
   |`RootScaff
@@ -250,7 +255,8 @@ type dir_like = [
   |`TreeHash of Hash.t
   |`CommitHash of Hash.t
   |`RefScaff of ref_scaff
-  |`ReflogScaff of reflog_scaff
+  |`ReflogScaff of log_scaff
+  |`LogScaff of log_scaff
   |`CommitParents of Hash.t
   (*| (* gitlink, etc *)*)
   ]
@@ -306,17 +312,10 @@ let known_commit_hashes_ = ref HashSet.empty
 let known_commit_hashes () =
   HashSet.elements !known_commit_hashes_
 
-let commit_of_ref ref =
-  let r = Hash.of_backtick [ "show-ref"; "--hash"; "--verify"; "--"; ref ] in
-  known_commit_hashes_ := HashSet.add r !known_commit_hashes_;
-  r
-
 let tree_of_commit_with_prefix hash prefix =
   (* prefix should be empty or a relative path with no initial slash
    * and no . or .. *)
-  Hash.of_backtick [ "rev-parse";
-      "--revs-only"; "--no-flags"; "--verify"; "--quiet";
-      (Hash.to_string hash) ^ "^{tree}" ^ ":" ^ prefix ]
+  Hash.of_rev_parse ((Hash.to_string hash) ^ "^{tree}" ^ ":" ^ prefix )
 
 let commit_parents hash =
   let r = List.map Hash.of_string (BatString.nsplit (backtick_git
@@ -380,9 +379,9 @@ let ref_tree_uncached () =
     )
     refs;
   (* symbolic refs don't pass show-ref. Different beast. *)
-  (* Even HEAD doesn't always pass symbolic-ref.
-     Only rev-parse seems foolproof. *)
-  (* tree := ref_tree_add !tree ["HEAD"]; *)
+  (* When detached, they don't pass symbolic-ref either. *)
+  (* Reinstate this now that we don't use show-ref? *)
+  (* tree := ref_tree_add !tree ["HEAD"] (Hash.of_rev_parse "HEAD"); *)
   !tree
 
 (* Time-based caching.
@@ -423,28 +422,34 @@ let hash_of_ref ref =
     in raise Not_found (* looking for a/b when only a/b/c exist *)
   with Found_hash hash -> hash
 
-
-let reflog_entries name =
-  (* XXX There's something very wrong when name is a tag.
-     This appears to be a git bug. *)
-  let r = lines_of_string (backtick_git [ "rev-list"; "-g"; name; ])
+let parse_rev_list cmd =
+  let r = lines_of_string (backtick_git cmd)
   in List.iter (fun h_s ->
     let h = Hash.of_string h_s in
     known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
     r;
   r
 
-let reflog_entries_pretty_names name =
-  let entries = reflog_entries name in
+let decimal_width entries =
   let n = List.length entries in
-  let width = n - 1 |> float_of_int |> log10 |> ceil |> int_of_float in
+  n - 1 |> float_of_int |> log10 |> ceil |> int_of_float
+
+let reflog_regexp = Pcre.regexp "^(.*)@{([0-9]+)}$"
+let log_regexp = Pcre.regexp "^(.*)~([0-9]+)$"
+
+let reflog_entries name =
+  (* XXX There's something very wrong taking the reflog of a tag.
+     This appears to be a git bug. *)
+  parse_rev_list [ "rev-list"; "-g"; name; ]
+
+let reflog_entries_pretty_names name hash =
+  let entries = reflog_entries name in
+  let width = decimal_width entries in
   BatList.mapi (fun i h ->
     "@{" ^ (Printf.sprintf "%0*d" width i) ^ "}") entries
 
-
-let reflog_regexp = Pcre.regexp "^(.*)@{([0-9]+)}$"
-
 let reflog_entry name child depth =
+  (* Would be nice to reverify consistency in case the ref moved. *)
   let fail () = failwith (Printf.sprintf
         "%S has incorrect syntax for a reflog entry of %S" child name) in
   let substr = try
@@ -453,10 +458,29 @@ let reflog_entry name child depth =
     Not_found -> fail () in
   let refname = Pcre.get_substring substr 1 in
   if refname <> "" then fail ();
-  let hash = Hash.of_backtick [ "rev-parse";
-    "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name ^ child ]
-  in
-    symlink_to_scaff (`CommitHash hash) depth
+  let hash = Hash.of_rev_parse (name ^ child)
+  in symlink_to_scaff (`CommitHash hash) depth
+
+let log_entries hash =
+  parse_rev_list [ "rev-list"; Hash.to_string hash; ]
+
+let log_entries_pretty_names name hash =
+  let entries = log_entries hash in
+  let width = decimal_width entries in
+  BatList.mapi (fun i h ->
+    "~" ^ (Printf.sprintf "%0*d" width i)) entries
+
+let log_entry name hash child depth =
+  let fail () = failwith (Printf.sprintf
+        "%S has incorrect syntax for a log entry of %S" child name) in
+  let substr = try
+    Pcre.exec ~rex:log_regexp child
+  with
+    Not_found -> fail () in
+  let refname = Pcre.get_substring substr 1 in
+  if refname <> "" then fail ();
+  let hash = Hash.of_rev_parse ((Hash.to_string hash) ^ child; )
+  in symlink_to_scaff (`CommitHash hash) depth
 
 
 let symref_ref name =
@@ -465,7 +489,7 @@ let symref_ref name =
   in `RefScaff { ref_hash = hash; ref_depth = 0; ref_reflog_name = name; }
 
 let symref_commit name =
-  let commit = Hash.of_backtick [ "rev-parse"; name; ]
+  let commit = Hash.of_rev_parse name
   in `RefScaff { ref_hash = commit; ref_depth = 0; ref_reflog_name = name; }
 
 (* Resolve a symbolic ref.
@@ -586,13 +610,20 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
         end
     |`CommitsScaff -> `CommitHash (Hash.of_string child)
     |`TreeHash hash -> tree_child hash child
-    |`ReflogScaff { reflog_name = name; reflog_depth = depth; } ->
+    |`ReflogScaff { log_name = name; log_depth = depth; } ->
         reflog_entry name child (depth + 1)
+    |`LogScaff { log_name = name; log_hash = hash; log_depth = depth; } ->
+        log_entry name hash child (depth + 1)
     |`RefScaff { ref_hash = hash; ref_depth = depth; } when child = "current" ->
         commit_symlink_of_hash hash (depth + 1)
-    |`RefScaff {
-        ref_reflog_name = name; ref_depth = depth; } when child = "reflog" ->
-        `ReflogScaff { reflog_name = name; reflog_depth = depth + 1; }
+    (* We keep both hash and name, to force a ref_tree refresh
+       when the first reflog entry doesn't match the hash. *)
+    |`RefScaff { ref_hash = hash; ref_reflog_name = name; ref_depth = depth; }
+      when child = "reflog" -> `ReflogScaff {
+            log_name = name; log_hash = hash; log_depth = depth + 1; }
+    |`RefScaff { ref_hash = hash; ref_reflog_name = name; ref_depth = depth; }
+      when child = "log" -> `LogScaff {
+            log_name = name; log_hash = hash; log_depth = depth + 1; }
     |`RefScaff _ when child = "worktree" ->
         `FsSymlink "current/worktree"
     |`RefScaff _ -> raise Not_found
@@ -622,9 +653,12 @@ let list_children (scaff : scaffolding) =
         List.map Hash.to_string (known_commit_hashes ())
     |`RefsScaff { subtree = children } ->
         List.map fst children
-    |`RefScaff _ -> [ "current"; "worktree"; "reflog"; ]
+    |`RefScaff _ -> [ "current"; "worktree"; "reflog"; "log"; ]
     |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
-    |`ReflogScaff { reflog_name = name } -> reflog_entries_pretty_names name
+    |`ReflogScaff { log_name = name; log_hash = hash; } ->
+        reflog_entries_pretty_names name hash
+    |`LogScaff { log_name = name; log_hash = hash; } ->
+        log_entries_pretty_names name hash
     |`TreeHash hash -> tree_children_names hash
     |`CommitParents hash -> commit_parents_pretty_names hash
   end
