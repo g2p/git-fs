@@ -14,8 +14,11 @@ Map more stuff
     date-based view
   symbolic refs
     FETCH_HEAD, ORIG_HEAD, MERGE_HEAD (not discoverable I think)
+    BISECT_EXPECTED_REV BISECT_START
     git grep -wl --all-match -e HEAD -e FETCH_HEAD -e ORIG_HEAD -e MERGE_HEAD
     OTOH non-HEAD symrefs aren't always there, hide them as an impl detail.
+  bisect stuff
+    BISECT_LOG BISECT_RUN BISECT_NAMES
   configuration
   remote urls
 
