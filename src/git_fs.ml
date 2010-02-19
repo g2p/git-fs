@@ -244,7 +244,7 @@ and ref_tree =
 (* prefix, and a subtree we haven't traversed yet *)
 type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
 type ref_scaff = { ref_depth: int; ref_hash: Hash.t; ref_reflog_name: string; }
-(* both log and reflog, they have so much in common *)
+(* used to be shared with log and reflog, hence the name *)
 type log_scaff = { log_depth: int; log_hash: Hash.t; log_name: string; }
 
 type dir_like = [
@@ -256,7 +256,7 @@ type dir_like = [
   |`CommitHash of Hash.t
   |`RefScaff of ref_scaff
   |`ReflogScaff of log_scaff
-  |`LogScaff of log_scaff
+  |`LogScaff of Hash.t
   |`CommitParents of Hash.t
   (*| (* gitlink, etc *)*)
   ]
@@ -433,29 +433,30 @@ let reflog_entry name child depth =
     Not_found -> fail () in
   let refname = Pcre.get_substring substr 1 in
   if refname <> "" then fail ();
-  let hash = Hash.of_rev_parse (name ^ child)
-  in symlink_to_scaff (`CommitHash hash) depth
+  let child_hash = Hash.of_rev_parse (name ^ child)
+  in symlink_to_scaff (`CommitHash child_hash) depth
 
 let log_entries hash =
   parse_rev_list [ "rev-list"; Hash.to_string hash; ]
 
-let log_entries_pretty_names name hash =
+let log_entries_pretty_names hash =
   let entries = log_entries hash in
   let width = decimal_width entries in
   BatList.mapi (fun i h ->
     "~" ^ (Printf.sprintf "%0*d" width i)) entries
 
-let log_entry name hash child depth =
+let log_entry hash child depth =
+  let hash_s = Hash.to_string hash in
   let fail () = failwith (Printf.sprintf
-        "%S has incorrect syntax for a log entry of %S" child name) in
+        "%S has incorrect syntax for a log entry of %S" child hash_s) in
   let substr = try
     Pcre.exec ~rex:log_regexp child
   with
     Not_found -> fail () in
   let refname = Pcre.get_substring substr 1 in
   if refname <> "" then fail ();
-  let hash = Hash.of_rev_parse ((Hash.to_string hash) ^ child; )
-  in symlink_to_scaff (`CommitHash hash) depth
+  let child_hash = Hash.of_rev_parse (hash_s ^ child; )
+  in symlink_to_scaff (`CommitHash child_hash) depth
 
 
 (* association list for the fs root *)
@@ -562,8 +563,7 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
     |`TreeHash hash -> tree_child hash child
     |`ReflogScaff { log_name = name; log_depth = depth; } ->
         reflog_entry name child (depth + 1)
-    |`LogScaff { log_name = name; log_hash = hash; log_depth = depth; } ->
-        log_entry name hash child (depth + 1)
+    |`LogScaff hash -> log_entry hash child 3
     |`RefScaff { ref_hash = hash; ref_depth = depth; } when child = "current" ->
         commit_symlink_of_hash hash (depth + 1)
     (* We keep both hash and name, to force a ref_tree refresh
@@ -572,12 +572,12 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
       when child = "reflog" -> `ReflogScaff {
             log_name = name; log_hash = hash; log_depth = depth + 1; }
     |`RefScaff { ref_hash = hash; ref_reflog_name = name; ref_depth = depth; }
-      when child = "log" -> `LogScaff {
-            log_name = name; log_hash = hash; log_depth = depth + 1; }
+      when child = "log" -> `FsSymlink "current/log"
     |`RefScaff _ when child = "worktree" ->
         `FsSymlink "current/worktree"
     |`RefScaff _ -> raise Not_found
 
+    |`CommitHash hash when child = "log" -> `LogScaff hash
     |`CommitHash hash when child = "msg" -> `CommitMsg hash
     |`CommitHash hash when child = "diff" -> `CommitDiff hash
     |`CommitHash hash when child = "parents" -> `CommitParents hash
@@ -604,11 +604,11 @@ let list_children (scaff : scaffolding) =
     |`RefsScaff { subtree = children } ->
         List.map fst children
     |`RefScaff _ -> [ "current"; "worktree"; "log"; "reflog"; ]
-    |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; ]
+    |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; "log"; ]
     |`ReflogScaff { log_name = name; log_hash = hash; } ->
         reflog_entries_pretty_names name hash
-    |`LogScaff { log_name = name; log_hash = hash; } ->
-        log_entries_pretty_names name hash
+    |`LogScaff hash ->
+        log_entries_pretty_names hash
     |`TreeHash hash -> tree_children_names hash
     |`CommitParents hash -> commit_parents_pretty_names hash
   end
