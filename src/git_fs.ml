@@ -234,12 +234,12 @@ let symlink_stats = { dir_stats with
 type ref_tree_i = (string * ref_tree) list
 and ref_tree =
   |RefTreeInternalNode of ref_tree_i
-  |RefTreeLeaf
+  |RefTreeLeaf of Hash.t
 
 
 (* prefix, and a subtree we haven't traversed yet *)
 type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
-type ref_scaff = { ref_depth: int; refname: string; ref_reflog_name: string; }
+type ref_scaff = { ref_depth: int; ref_hash: Hash.t; ref_reflog_name: string; }
 type reflog_scaff = { reflog_depth: int; reflog_name: string; }
 
 type dir_like = [
@@ -279,7 +279,8 @@ let rec canonical = function
   |`TreesScaff -> "trees"
   |`RefsScaff { prefix = prefix } ->
       if prefix = "" then "refs" else "refs/" ^ prefix
-  |`RefScaff { refname = name } -> "refs/" ^ name
+  (* Complicated now that we handle symrefs here: *)
+  (*|`RefScaff { refname = name } -> "refs/" ^ name*)
   |`CommitsScaff -> "commits"
   |`TreeHash hash -> (canonical `TreesScaff) ^ "/" ^ (Hash.to_string hash)
   |`CommitHash hash -> (canonical `CommitsScaff) ^ "/" ^ (Hash.to_string hash)
@@ -351,28 +352,31 @@ let ref_names () =
    * This result shouldn't be cached, unlike most of the git data model
    * it's not a functional data structure and may mutate.
    *)
-  lines_of_string (backtick_git [ "for-each-ref"; "--format"; "%(refname)"; ])
+  let lines = lines_of_string (backtick_git [ "for-each-ref";
+    "--format"; "%(refname) %(objectname)"; ])
+  in List.map (fun line ->
+    let r, h_s = BatString.rsplit line " " in r, Hash.of_string h_s) lines
 
-let rec ref_tree_add tree path =
+let rec ref_tree_add tree path hash =
   (* this traversal relies on the sort order *)
   match tree, path with
   (* git maintains that invariant for us anyway. *)
   |_, [] -> failwith "Can't make an internal node into a leaf"
   |((name, RefTreeInternalNode grand_children)::children_tl), name_::tl
   when name = name_ ->
-    (name, RefTreeInternalNode (ref_tree_add grand_children tl)
+    (name, RefTreeInternalNode (ref_tree_add grand_children tl hash)
       )::children_tl
   |children, name::[] -> (* sort order *)
-      (name, RefTreeLeaf)::children
+      (name, RefTreeLeaf hash)::children
   |children, name::tl -> (* sort order *)
-      (name, RefTreeInternalNode (ref_tree_add [] tl))::children
+      (name, RefTreeInternalNode (ref_tree_add [] tl hash))::children
 
 let ref_tree_uncached () =
   let refs = ref_names () in
   let tree = ref [] in
-  List.iter (fun refname ->
+  List.iter (fun (refname, hash) ->
     let refpath = BatString.nsplit refname "/" in
-    tree := ref_tree_add !tree refpath;
+    tree := ref_tree_add !tree refpath hash;
     )
     refs;
   (* symbolic refs don't pass show-ref. Different beast. *)
@@ -394,6 +398,30 @@ let with_caching fn delay_float_secs =
 
 let ref_tree =
   with_caching ref_tree_uncached 300.
+
+exception Found_hash of Hash.t
+
+let hash_of_ref ref =
+  (* tree lookup *)
+  (* should have thougt of keeping the non-treefied list before coding that. *)
+  (* the notfound exceptions would mean a change between calling
+     for-each-ref and symbolic-ref HEAD, or a broken HEAD.
+     XXX They would make the root unavailable, not just the HEAD directory. *)
+  let tree = ref_tree () in
+  let ref_l = BatString.nsplit ref "/" in
+  let ref_n = List.length ref_l in
+  try
+    let _ = List.fold_left
+    begin fun (tree, left) child ->
+      match List.assoc child tree with
+        |RefTreeInternalNode children -> (children, left - 1)
+        |RefTreeLeaf hash ->
+            if left = 1
+            then raise (Found_hash hash)
+            else raise Not_found (* looking for a/b/c when only a/b exists *)
+    end (tree, ref_n) ref_l
+    in raise Not_found (* looking for a/b when only a/b/c exist *)
+  with Found_hash hash -> hash
 
 
 let reflog_entries name =
@@ -433,11 +461,12 @@ let reflog_entry name child depth =
 
 let symref_ref name =
   let refname = backtick_git ~trim_endline:true [ "symbolic-ref"; "--"; name; ]
-  in `RefScaff { refname = refname; ref_depth = 0; ref_reflog_name = name; }
+  in let hash = hash_of_ref refname
+  in `RefScaff { ref_hash = hash; ref_depth = 0; ref_reflog_name = name; }
 
 let symref_commit name =
   let commit = Hash.of_backtick [ "rev-parse"; name; ]
-  in symlink_to_scaff (`CommitHash commit) 0
+  in `RefScaff { ref_hash = commit; ref_depth = 0; ref_reflog_name = name; }
 
 (* Resolve a symbolic ref.
    XXX Pointing either to a ref or a commit is weak typing,
@@ -472,8 +501,8 @@ let root_al () = [
 let tree_of_commit hash =
   tree_of_commit_with_prefix hash ""
 
-let commit_symlink_of_ref ref depth =
-  let scaff = `CommitHash (commit_of_ref ref) in
+let commit_symlink_of_hash hash depth =
+  let scaff = `CommitHash hash in
   symlink_to_scaff scaff depth
 
 let tree_symlink_of_commit hash depth =
@@ -550,7 +579,7 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
       begin
         let prefix1 = if prefix = "" then child else prefix ^ "/" ^ child
         in match List.assoc child children with
-          |RefTreeLeaf -> `RefScaff { refname = prefix1;
+          |RefTreeLeaf hash -> `RefScaff { ref_hash = hash;
               ref_depth = depth + 1; ref_reflog_name = prefix1; }
           |RefTreeInternalNode children -> `RefsScaff {
               prefix = prefix1; subtree = children; refs_depth = depth + 1; }
@@ -559,8 +588,8 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
     |`TreeHash hash -> tree_child hash child
     |`ReflogScaff { reflog_name = name; reflog_depth = depth; } ->
         reflog_entry name child (depth + 1)
-    |`RefScaff { refname = name; ref_depth = depth; } when child = "current" ->
-        commit_symlink_of_ref name (depth + 1)
+    |`RefScaff { ref_hash = hash; ref_depth = depth; } when child = "current" ->
+        commit_symlink_of_hash hash (depth + 1)
     |`RefScaff {
         ref_reflog_name = name; ref_depth = depth; } when child = "reflog" ->
         `ReflogScaff { reflog_name = name; reflog_depth = depth + 1; }
