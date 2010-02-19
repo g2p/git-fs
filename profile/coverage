@@ -6,7 +6,9 @@ trap 'kill $pid' EXIT
 ./git-fs help
 ./git-fs fuse-help
 ! ./git-fs NO-SUCH-COMMAND
+! ./git-fs is-mounted
 ./git-fs mount & pid=$!
+./git-fs is-mounted
 ! ps -fp "$pid"
 ! ./git-fs
 cat "$(./git-fs show-mountpoint)"/HEAD/worktree/README
@@ -16,7 +18,9 @@ cat "$(./git-fs show-mountpoint)"/heads/master/current/diff
 ! cat "$(./git-fs show-mountpoint)"/heads/master
 ! ls "$(./git-fs show-mountpoint)"/HEAD/worktree/README/
 find "$(./git-fs show-mountpoint)"
-tree -al "$(./git-fs show-mountpoint)"
+# Tree crashes (!); sometimes -C, or a pty, slows it down and helps.
+#tree -Cal "$(./git-fs show-mountpoint)" || true
+tree -al "$(./git-fs show-mountpoint)" || true
 ./git-fs umount
 ./git-fs umount || true
 
