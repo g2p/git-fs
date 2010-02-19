@@ -445,7 +445,7 @@ let log_entries_pretty_names hash =
   BatList.mapi (fun i h ->
     "~" ^ (Printf.sprintf "%0*d" width i)) entries
 
-let log_entry hash child depth =
+let log_entry hash child =
   let hash_s = Hash.to_string hash in
   let fail () = failwith (Printf.sprintf
         "%S has incorrect syntax for a log entry of %S" child hash_s) in
@@ -456,7 +456,7 @@ let log_entry hash child depth =
   let refname = Pcre.get_substring substr 1 in
   if refname <> "" then fail ();
   let child_hash = Hash.of_rev_parse (hash_s ^ child; )
-  in symlink_to_scaff (`CommitHash child_hash) depth
+  in `FsSymlink ("../../" ^ (Hash.to_string child_hash))
 
 
 (* association list for the fs root *)
@@ -563,7 +563,7 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
     |`TreeHash hash -> tree_child hash child
     |`ReflogScaff { log_name = name; log_depth = depth; } ->
         reflog_entry name child (depth + 1)
-    |`LogScaff hash -> log_entry hash child 3
+    |`LogScaff hash -> log_entry hash child
     |`RefScaff { ref_hash = hash; ref_depth = depth; } when child = "current" ->
         commit_symlink_of_hash hash (depth + 1)
     (* We keep both hash and name, to force a ref_tree refresh
