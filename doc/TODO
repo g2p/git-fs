@@ -21,6 +21,8 @@ Map more stuff
     BISECT_LOG BISECT_RUN BISECT_NAMES
   configuration
   remote urls
+  optional symlinks, that only exist when their target does
+    uses: various symbolic refs, the origin remote.
 
 Get a library to access the repo without fork/malloc/die cycles
 that cost (in memory latency? whatever, it's very slow).

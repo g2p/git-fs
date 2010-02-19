@@ -358,7 +358,8 @@ let ref_names () =
 let rec ref_tree_add tree path hash =
   (* this traversal relies on the sort order *)
   match tree, path with
-  (* git maintains that invariant for us anyway. *)
+  (* git maintains that invariant for us anyway. Except if someone manages to
+     create refs/{heads,remotes,tags} as a ref instead of a ref prefix. *)
   |_, [] -> failwith "Can't make an internal node into a leaf"
   |((name, RefTreeInternalNode grand_children)::children_tl), name_::tl
   when name = name_ ->
@@ -369,9 +370,18 @@ let rec ref_tree_add tree path hash =
   |children, name::tl -> (* sort order *)
       (name, RefTreeInternalNode (ref_tree_add [] tl hash))::children
 
+(* So we don't have dangling symlinks *)
+let skel_tree = [
+  "refs", RefTreeInternalNode [
+    "heads", RefTreeInternalNode [];
+    "remotes", RefTreeInternalNode [];
+    "tags", RefTreeInternalNode [];
+    ];
+  ]
+
 let ref_tree_uncached () =
   let refs = ref_names () in
-  let tree = ref [] in
+  let tree = ref skel_tree in
   List.iter (fun (refname, hash) ->
     let refpath = BatString.nsplit refname "/" in
     tree := ref_tree_add !tree refpath hash;
