@@ -17,6 +17,9 @@ To explore what a git repo looks like. For example, clone git.git, go to
 .git/fs, and point a file browser to remotes/origin/todo/worktree/ .
 Open remotes/origin/html/worktree/index.html in a web browser.
 
+When using git for backups (gibak), configuration management (etckeeper),
+wikis (ikiwiki), to retrieve previous file versions.
+
 Building and using git-fs
 -------------------------
 
