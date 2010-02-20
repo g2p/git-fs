@@ -198,8 +198,13 @@ end = struct
   let of_backtick cmd =
     of_string (backtick_git ~trim_endline:true cmd)
   let of_rev_parse name =
-    of_backtick [ "rev-parse";
-        "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name; ]
+    try
+      of_backtick [ "rev-parse";
+          "--revs-only"; "--no-flags"; "--verify"; "--quiet"; name; ]
+    with
+      |Non_zero_exit (Unix.WEXITED 1)
+      |Non_zero_exit (Unix.WEXITED 128) ->
+      raise Not_found
 end
 
 let describe_tag hash =
@@ -379,6 +384,16 @@ let skel_tree = [
     ];
   ]
 
+let add_symref_if_exists tree name =
+  let lazy git_dir_abs = git_dir_abs_lazy in
+  try
+    (* The file existence test is to not catch anything that isn't
+       a symref or a detached symref. *)
+    if not (Sys.file_exists (git_dir_abs ^ "/" ^ name)) then raise Not_found;
+    ref_tree_add tree [name] (Hash.of_rev_parse name)
+  with
+    Not_found -> tree
+
 let ref_tree_uncached () =
   let refs = ref_names () in
   let tree = ref skel_tree in
@@ -387,8 +402,8 @@ let ref_tree_uncached () =
     tree := ref_tree_add !tree refpath hash;
     )
     refs;
-  (* XXX Assuming there is a HEAD *)
-  tree := ref_tree_add !tree ["HEAD"] (Hash.of_rev_parse "HEAD");
+  List.iter (fun name -> tree := add_symref_if_exists !tree name) [
+      "HEAD"; "FETCH_HEAD"; "ORIG_HEAD"; "MERGE_HEAD"; ];
   !tree
 
 (* Time-based caching.
