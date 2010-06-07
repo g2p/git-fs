@@ -334,7 +334,7 @@ let commit_parents_pretty_names hash =
   match commit_parents hash with
   |[] -> []
   |p0::tl -> (hash_s ^ "^")::(BatList.mapi (fun i h ->
-      hash_s ^ "^" ^ (string_of_int (i+1)))
+      hash_s ^ "^" ^ (string_of_int (i+2)))
       tl)
 
 let parent_symlink merged parent_id depth =
@@ -343,8 +343,9 @@ let parent_symlink merged parent_id depth =
   then failwith (Printf.sprintf
         "%S has incorrect syntax for a parent of %S" parent_id merged_s);
   let suffix = BatString.tail parent_id 41 in
-  let parent_idx = if suffix = "" then 0 else int_of_string suffix in
-  let hash = List.nth (commit_parents merged) parent_idx in
+  (* human-readable parent indices are off by one, they start at 1 *)
+  let parent_idx = if suffix = "" then 1 else int_of_string suffix in
+  let hash = List.nth (commit_parents merged) (pred parent_idx) in
   symlink_to_scaff (`CommitHash hash) depth
 
 let lines_of_string str =
