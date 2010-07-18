@@ -25,7 +25,7 @@ Building and using git-fs
 
 Known dependencies:
 
-    sudo aptitude install omake libfuse-dev libbatteries-ocaml-dev
+    sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
 
 Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
 
