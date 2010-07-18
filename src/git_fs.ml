@@ -830,8 +830,18 @@ let cmd_is_mounted () =
   else
     exit 1
 
+let cmd_mtab () = (* see is_mounted for a similar impl *)
+  BatEnum.iter (fun line ->
+    match BatString.nsplit line " " with
+    |_::_::_::_::mountpoint::_::_::an_fs_type::git_dir::_
+    when an_fs_type = fs_type ->
+      (*print_endline (git_dir ^ " is mounted on " ^ mountpoint)*)
+      print_endline mountpoint
+    |_ -> ()
+    ) (BatFile.lines_of "/proc/self/mountinfo")
+
 let usage () =
-  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|is-mounted|help]"
+  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|is-mounted|mtab|help]"
 
 let cmd_help = usage
 
@@ -845,6 +855,7 @@ let _ =
   |[| _; "umount" |] -> cmd_umount ()
   |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
   |[| _; "is-mounted" |] -> cmd_is_mounted ()
+  |[| _; "mtab" |] -> cmd_mtab ()
   |[| _; "help" |] -> cmd_help ()
   |[| _; "fuse-help" |] -> cmd_fuse_help () (* For developer use *)
   |_ -> begin usage (); exit 2; end

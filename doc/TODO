@@ -1,5 +1,3 @@
-git fs ls: display what is already mounted.
-
 git fs status: display if currently mounted.
 Distinct from git fs is-mounted, which uses the exit status and is
 meant to be machine-readable for prompts and the like.
@@ -60,4 +58,6 @@ Symbolic refs with their own reflog, both for normal symrefs
 and detached symrefs.
 
 Logs are mapped.
+
+git fs mtab: display what is already mounted.
 
