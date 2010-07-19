@@ -177,6 +177,56 @@ let subprocess_read_bigarray_git cmd offset big_array =
   let cmd = "git"::"--git-dir"::git_dir::cmd in
   subprocess_read_bigarray cmd offset big_array
 
+(* Implement percent-encoding (aka urlencode).
+ * See RFC 3986 section 2.
+ * http://tools.ietf.org/html/rfc3986#section-2
+ *)
+module PercentEncoding = struct
+  let cset_of_range c1 c2 =
+    BatISet.add_range (int_of_char c1) (int_of_char c2) BatISet.empty
+
+  let cset_of_string str =
+    List.fold_left (fun cset el -> BatISet.add (int_of_char el) cset)
+    BatISet.empty (BatString.to_list str)
+
+  let cset_pretty cset =
+    BatString.join " " (List.map (fun (c1, c2) ->
+      if c1 = c2
+      then Printf.sprintf "%C" (char_of_int c1)
+      else Printf.sprintf "%C-%C" (char_of_int c1) (char_of_int c2))
+    (BatISet.ranges cset))
+
+  (* Those are always safe *)
+  let unreserved = cset_of_string
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+  let gen_delims = cset_of_string ":/?#[]@"
+  let sub_delims = cset_of_string "!$&'()*+,;="
+  (* Those default to unsafe, but you can mark them as safe *)
+  let reserved = BatISet.union gen_delims sub_delims
+
+  let encode bytes safe =
+    let safe_here = BatISet.union unreserved (BatISet.inter reserved safe) in
+    (*prerr_endline (cset_pretty safe_here);*)
+    let encode_char c =
+      let ord = int_of_char c in
+      if BatISet.mem ord safe_here
+      then BatString.of_char c else
+        Printf.sprintf "%%%02X" ord
+    in
+      List.fold_left (fun acc c ->
+        acc ^ (encode_char c)) "" (BatString.to_list bytes)
+end
+
+(* reserve "," due to fuse option passing.
+ * " ", used in mountinfo, is encoded by default. *)
+let fsname_safe = BatISet.diff
+  PercentEncoding.reserved
+  (PercentEncoding.cset_of_string ",")
+
+let fsname_lazy = lazy (
+  let lazy git_dir_abs = git_dir_abs_lazy in
+  PercentEncoding.encode git_dir_abs fsname_safe)
+
 module Hash : sig
   type t
   val of_string : string -> t
@@ -772,29 +822,33 @@ let fuse_ops = {
 let mountpoint_lazy =
   lazy (let lazy git_dir = git_dir_rel_lazy in git_dir ^ "/fs")
 
+
 let fs_subtype = Filename.basename Sys.argv.(0)
 
 let fs_type = "fuse." ^ fs_subtype
 
 exception Found
 
+let mtab_lines () =
+  BatEnum.filter_map (fun line ->
+    match BatString.nsplit line " " with
+    |_::_::_::"/"::mountpoint::_::"-"::an_fs_type::git_dir_quoted::_
+    when an_fs_type = fs_type ->
+      (* XXX mountpoint has octal escapes, decode that? *)
+      Some (git_dir_quoted, mountpoint)
+    |_ -> None
+    ) (BatFile.lines_of "/proc/self/mountinfo")
+
 let is_mounted () =
-  let lazy mountpoint = mountpoint_lazy in
-  let abs_mountpoint = abspath mountpoint in
-  let psf_lines = BatFile.lines_of "/proc/self/mountinfo" in
-  try
-    BatEnum.iter (fun line ->
-        let fields = BatString.nsplit line " " in
-        if List.nth fields 4 = abs_mountpoint && List.nth fields 7 = fs_type
-        then raise Found)
-      psf_lines;
-    false
-  with Found ->
-    true
+  let lazy fsname = fsname_lazy in
+  BatEnum.exists (fun (git_dir_quoted, mountpoint) ->
+    git_dir_quoted = fsname)
+    (mtab_lines ())
 
 let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
-  let lazy git_dir_abs = git_dir_abs_lazy in
+  let lazy fsname = fsname_lazy in
+  (*prerr_endline fsname;*)
   if is_mounted ()
   then
     prerr_endline (Printf.sprintf "Mounted on %S" mountpoint)
@@ -807,7 +861,7 @@ let cmd_mount () =
       "-o"; "ro";
       (* fuse doesn't guess the subtype anymore, if we give it fsname *)
       "-osubtype=" ^ fs_subtype;
-      "-ofsname=" ^ git_dir_abs; (* XXX needs ","-quoting *)
+      "-ofsname=" ^ fsname;
       mountpoint;
       |] in
     Fuse.main fuse_args fuse_ops
@@ -830,15 +884,9 @@ let cmd_is_mounted () =
   else
     exit 1
 
-let cmd_mtab () = (* see is_mounted for a similar impl *)
-  BatEnum.iter (fun line ->
-    match BatString.nsplit line " " with
-    |_::_::_::_::mountpoint::_::_::an_fs_type::git_dir::_
-    when an_fs_type = fs_type ->
-      (*print_endline (git_dir ^ " is mounted on " ^ mountpoint)*)
-      print_endline mountpoint
-    |_ -> ()
-    ) (BatFile.lines_of "/proc/self/mountinfo")
+let cmd_mtab () =
+  BatEnum.iter (fun (git_dir_quoted, mountpoint) ->
+    print_endline mountpoint) (mtab_lines ())
 
 let usage () =
   prerr_endline "Usage: git fs [mount|umount|show-mountpoint|is-mounted|mtab|help]"
