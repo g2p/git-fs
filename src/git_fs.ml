@@ -155,6 +155,7 @@ let abspath path =
   if not (Filename.is_relative path) then path
   else (Unix.getcwd ()) ^ "/" ^ path
 
+(* Must be lazy, so we work outside of a git dir. eg, help and mtab. *)
 let git_dir_rel_lazy = lazy (
   let r = backtick ~trim_endline:true ["git"; "rev-parse"; "--git-dir"; ]
   in if r <> "" then r else failwith "Git directory not found."
@@ -178,9 +179,8 @@ let subprocess_read_bigarray_git cmd offset big_array =
   subprocess_read_bigarray cmd offset big_array
 
 (* Implement percent-encoding (aka urlencode).
- * See RFC 3986 section 2.
- * http://tools.ietf.org/html/rfc3986#section-2
- *)
+  See RFC 3986 section 2.
+  http://tools.ietf.org/html/rfc3986#section-2 *)
 module PercentEncoding = struct
   let cset_of_range c1 c2 =
     BatISet.add_range (int_of_char c1) (int_of_char c2) BatISet.empty
@@ -218,7 +218,7 @@ module PercentEncoding = struct
 end
 
 (* reserve "," due to fuse option passing.
- * " ", used in mountinfo, is encoded by default. *)
+   " ", used in mountinfo, is encoded by default. *)
 let fsname_safe = BatISet.diff
   PercentEncoding.reserved
   (PercentEncoding.cset_of_string ",")
@@ -265,7 +265,9 @@ let symlink_target hash =
   backtick_git [ "cat-file"; "blob"; Hash.to_string hash; ]
 
 
-let dir_stats = Unix.LargeFile.stat "." (* XXX *)
+let dir_stats = { (Unix.LargeFile.stat "." (* XXX *)) with
+  UL.st_perm = 0o500;
+  }
 let file_stats = { dir_stats with
   UL.st_kind = Unix.S_REG;
   UL.st_nlink = 1;
@@ -470,8 +472,6 @@ let with_caching fn delay_float_secs =
 
 let ref_tree =
   with_caching ref_tree_uncached 300.
-
-exception Found_hash of Hash.t
 
 let parse_rev_list cmd =
   let r = lines_of_string (backtick_git cmd)
@@ -827,8 +827,6 @@ let fs_subtype = Filename.basename Sys.argv.(0)
 
 let fs_type = "fuse." ^ fs_subtype
 
-exception Found
-
 let mtab_lines () =
   BatEnum.filter_map (fun line ->
     match BatString.nsplit line " " with
@@ -853,7 +851,7 @@ let cmd_mount () =
   then
     prerr_endline (Printf.sprintf "Mounted on %S" mountpoint)
   else begin
-    begin try Unix.mkdir mountpoint 0o0755
+    begin try Unix.mkdir mountpoint 0o755
     with Unix.Unix_error (Unix.EEXIST, _, _) -> () end;
     prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
     let fuse_args = [|
