@@ -177,8 +177,8 @@ let subprocess_read_bigarray_git cmd offset big_array =
   subprocess_read_bigarray cmd offset big_array
 
 (* Implement percent-encoding (aka urlencode).
-  See RFC 3986 section 2.
-  http://tools.ietf.org/html/rfc3986#section-2 *)
+   See RFC 3986 section 2.
+   http://tools.ietf.org/html/rfc3986#section-2 *)
 module PercentEncoding = struct
   let cset_of_range c1 c2 =
     BatISet.add_range (int_of_char c1) (int_of_char c2) BatISet.empty

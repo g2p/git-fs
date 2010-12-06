@@ -26,6 +26,9 @@ things like libmagic need much less.
 There are a ton of perf tweaks we could do, but they are dwarfed by
 the library stuff so I won't mention them.
 
+Use inotify for better performance or accuracy.
+Symbolic refs are currently cached for too long.
+
 == Done
 
 Remove the base64 refnames hack.
