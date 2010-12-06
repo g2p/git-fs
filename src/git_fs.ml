@@ -366,6 +366,9 @@ let known_commit_hashes_ = ref HashSet.empty
 let known_commit_hashes () =
   HashSet.elements !known_commit_hashes_
 
+let notice_commit_hash hash =
+  known_commit_hashes_ := HashSet.add hash !known_commit_hashes_
+
 let tree_of_commit_with_prefix hash prefix =
   (* prefix should be empty or a relative path with no initial slash
    * and no . or .. *)
@@ -374,9 +377,7 @@ let tree_of_commit_with_prefix hash prefix =
 let commit_parents hash =
   let r = List.map Hash.of_string (BatString.nsplit (backtick_git
     [ "log"; "-n1"; "--format=format:%P"; Hash.to_string hash; ]) " ")
-  in List.iter (fun h ->
-    known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
-    r;
+  in List.iter notice_commit_hash r;
   r
 
 let commit_parents_pretty_names hash =
@@ -475,7 +476,7 @@ let parse_rev_list cmd =
   let r = lines_of_string (backtick_git cmd)
   in List.iter (fun h_s ->
     let h = Hash.of_string h_s in
-    known_commit_hashes_ := HashSet.add h !known_commit_hashes_)
+    notice_commit_hash h)
     r;
   r
 
@@ -633,7 +634,9 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
           |RefTreeInternalNode children -> `RefsScaff {
               prefix = prefix1; subtree = children; refs_depth = depth + 1; }
         end
-    |`CommitsScaff -> `CommitHash (Hash.of_string child)
+    |`CommitsScaff -> let h = Hash.of_string child in
+        notice_commit_hash h;
+        `CommitHash h
     |`TreeHash hash -> tree_child hash child
     |`ReflogScaff { log_name = name; log_depth = depth; } ->
         reflog_entry name child (depth + 1)
