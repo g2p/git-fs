@@ -2,28 +2,50 @@
 git-fs
 ======
 
-git-fs lets you access the git filesystem as a normal filesystem.
+git-fs is a filesystem interface to git repositories.
 
-Currently it lets you browse branches, reflogs, commits and worktrees.
+Past and current versions can be accessed without a checkout.
+Heads, tags, branches, reflogs, commits and worktrees provide various
+means of naming and accessing files.
 
-When to use it
---------------
+Use cases
+---------
 
-When you wonder what a file looks like in another branch, or a few versions
-ago, or in a remote repository, you can call `git fs`, browse to the right
-branch or reflog entry, and display the file.
+You can try these on the git.git repository.
 
-To explore what a git repo looks like. For example, clone git.git, go to
-.git/fs, and point a file browser to remotes/origin/todo/worktree/ .
-Open remotes/origin/html/worktree/index.html in a web browser.
+### Compute repository statistics
 
-When using git for backups (gibak), configuration management (etckeeper),
-wikis (ikiwiki), to retrieve previous file versions.
+How much code in the first major release?
 
-Building and using git-fs
--------------------------
+    git fs
+    cd .git/fs/tags/v1.0.0/worktree
+    ohcount # A sloccount alternative
 
-Known dependencies:
+### Display the latest html docs
+
+    git fs; cd .git/fs
+    firefox remotes/origin/html/worktree/index.html
+
+### Jump to a commit using its SHA1
+
+    git fs; cd .git/fs
+    cd commits/902f235378cb2b2f6dd5dd664b9630c95321f0ae
+
+### etc.
+
+- Restore from backup (bup, gibak)
+- Look at previous conffiles stored in etckeeper
+- Look at wiki pages stored by ikiwiki or gh-pages
+- Serve repository snapshots using a standard webserver.
+
+
+Build instructions
+------------------
+
+git-fs depends on FUSE and some OCaml libraries.
+It has been tested on Debian/Ubuntu.
+
+Get the dependencies:
 
     sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
 
@@ -40,27 +62,26 @@ Build:
     make -C deps/ocamlfuse/lib
     omake
 
-Usage:
-
-    ./git-fs mount
-    cd .git/fs/HEAD/worktree
-    cat README
-    cd -
-    ./git-fs umount
-
 Install (~/bin must be in your path):
 
     ln -s ~+/git-fs -t ~/bin
 
-git-fs can now be invoked as:
+Usage
+-----
 
-    git fs mount
-
-Or the shorter:
+The first step is to mount the filesystem.
 
     git fs
 
-Other features:
+Then, either browse it
 
+    cd .git/fs/HEAD/worktree
+    cat README
+
+Or use a few special commands
+
+    git fs mtab
+    git fs umount
     git fs help
+
 
