@@ -156,7 +156,7 @@ let abspath path =
   if not (Filename.is_relative path) then path
   else (Unix.getcwd ()) ^ "/" ^ path
 
-(* Must be lazy, so we work outside of a git dir. eg, help and mtab. *)
+(* Must be lazy, so commands like help and mtab work outside of a git dir. *)
 let git_dir_rel_lazy = lazy (
   let r = backtick ~trim_endline:true ["git"; "rev-parse"; "--git-dir"; ]
   in if r <> "" then r else failwith "Git directory not found."
@@ -339,6 +339,7 @@ type scaffolding = [
   ]
 
 
+
 let rec canonical = function
   |`RootScaff -> "."
   |`TreesScaff -> "trees"
@@ -462,16 +463,20 @@ let ref_tree_uncached () =
       "HEAD"; "FETCH_HEAD"; "ORIG_HEAD"; "MERGE_HEAD"; ];
   !tree
 
-(* Time-based caching.
+(* Time-based caching decorator.
    Takes fn: () -> 'a, delay, returns () -> 'a *)
 let with_caching fn delay_float_secs =
   let cache = ref None in fun () ->
   match !cache with
   |None ->
+      log "cache miss";
       let v = fn () in cache := Some (v, Unix.time ()); v
   |Some (_, tstamp) when Unix.time () > tstamp +. delay_float_secs ->
+      log "cache refresh";
       let v = fn () in cache := Some (v, Unix.time ()); v
-  |Some (cached, _) -> cached
+  |Some (cached, _) ->
+      log "cache hit";
+      cached
 
 let ref_tree =
   with_caching ref_tree_uncached ref_expiration_secs
@@ -548,6 +553,7 @@ let root_al () = [
   "HEAD", `FsSymlink "refs/HEAD";
   "trees", `TreesScaff;
   "commits", `CommitsScaff;
+  (* stateful *)
   "refs", `RefsScaff { prefix = ""; subtree = ref_tree; refs_depth = 0; };
   ]
 
@@ -563,20 +569,6 @@ let tree_symlink_of_commit hash depth =
   let scaff = `TreeHash (tree_of_commit hash) in
   symlink_to_scaff scaff depth
 
-let fh_data = Hashtbl.create 16
-let fh_by_name = Hashtbl.create 16
-
-let next_fh = ref 0
-
-let prime_cache path scaff =
-  try
-    Hashtbl.find fh_by_name path
-  with Not_found ->
-    let fh = !next_fh in
-    incr next_fh;
-    Hashtbl.add fh_by_name path (fh, scaff);
-    Hashtbl.add fh_data fh scaff;
-    (fh, scaff)
 
 let ls_tree_regexp = Pcre.regexp "(100644 blob|100755 blob|120000 blob|040000 tree) ([0-9a-f]+)\t([^\\x00]+)\\x00"
 
@@ -699,31 +691,44 @@ let list_children (scaff : scaffolding) =
         (Unix.ENOTDIR, "list_children", ""))
 
 
-let lookup scaff path =
+let lookup caller path =
   let rec lookup_r scaff = function
     |[] -> scaff
     |dir::rest ->
   lookup_r (scaffolding_child scaff dir) rest
   in match BatString.nsplit path "/" with
-  |""::""::[] -> lookup_r scaff []
-  |""::path_comps ->
-      lookup_r scaff path_comps
+  |""::""::[] -> `RootScaff (* / *)
+  |""::path_comps -> begin
+    (* /nonempty, or possibly // if fuse doesn't filter *)
+    try
+      lookup_r `RootScaff path_comps
+    with Not_found ->
+      raise (Unix.Unix_error (Unix.ENOENT, caller, path))
+    end
   |_ -> assert false (* fuse path must start with a slash *)
 
 
 
+let fh_data = Hashtbl.create 16
+
+let next_fh = ref 0
+
+let make_fh path scaff =
+  let fh = !next_fh in
+  incr next_fh;
+  Hashtbl.add fh_data fh scaff;
+  (fh, scaff)
+
+let clear_fh fh =
+  Hashtbl.remove fh_data fh
+
 let lookup_fh fh =
   Hashtbl.find fh_data fh
 
-let lookup_and_cache caller path =
-  try
-    Hashtbl.find fh_by_name path
-  with Not_found ->
-    try
-      let scaff = lookup `RootScaff path in
-      prime_cache path scaff
-    with Not_found ->
-      raise (Unix.Unix_error (Unix.ENOENT, caller, path))
+(* Use this for open / opendir, the ones that need a file handle *)
+let lookup_and_open caller path =
+  let scaff = lookup caller path in
+  make_fh path scaff
 
 
 let blob_size_uncached hash =
@@ -746,7 +751,7 @@ let blob_stats_by_hash hash is_exe =
 
 
 let do_getattr path =
-  let fh, scaff = lookup_and_cache "stat" path in
+  let scaff = lookup "stat" path in
   match scaff with
   |#dir_like -> dir_stats
   |#symlink_like -> symlink_stats
@@ -760,12 +765,14 @@ let do_getattr path =
 
 let do_opendir path flags =
 (*log ("Path is: " ^ path);*)
-  let fh, scaff = lookup_and_cache "opendir" path in
-  let r = Some fh in
+  let fh, scaff = lookup_and_open "opendir" path in
   match scaff with
-  |#dir_like -> r
+  |#dir_like -> Some fh
   |#scaffolding ->
       raise (Unix.Unix_error (Unix.ENOTDIR, "opendir", path))
+
+let do_releasedir path flags fh =
+  clear_fh fh
 
 let do_readdir path fh =
   try
@@ -776,7 +783,7 @@ let do_readdir path fh =
     assert false (* because opendir passed *)
 
 let do_readlink path =
-  let fh, scaff = lookup_and_cache "readlink" path in
+  let scaff = lookup "readlink" path in
   match scaff with
   |#symlink_like as scaff -> begin match scaff with
     |`FsSymlink target -> target
@@ -786,11 +793,14 @@ let do_readlink path =
   |#scaffolding -> raise (Unix.Unix_error (Unix.EINVAL, "readlink (not a symlink)", path))
 
 let do_fopen path flags =
-  let fh, scaff = lookup_and_cache "fopen" path in
+  let fh, scaff = lookup_and_open "fopen" path in
   match scaff with
   |#file_like -> Some fh
-  (* symlinks are resolved on the fuse size, we never see them opened. *)
+  (* symlinks are resolved on the fuse side, we never see them opened. *)
   |#scaffolding -> raise (Unix.Unix_error (Unix.EINVAL, "fopen (not a file)", path))
+
+let do_release path flags fh =
+  clear_fh fh
 
 (* Read file data into a Bigarray.Array1.
 
@@ -819,9 +829,11 @@ let fuse_ops = {
       Fuse.default_operations with
         Fuse.getattr = do_getattr;
         Fuse.opendir = do_opendir;
+        Fuse.releasedir = do_releasedir;
         Fuse.readdir = do_readdir;
         Fuse.readlink = do_readlink;
         Fuse.fopen = do_fopen;
+        Fuse.release = do_release;
         Fuse.read = do_read;
     }
 
@@ -852,7 +864,7 @@ let is_mounted () =
 let cmd_mount () =
   let lazy mountpoint = mountpoint_lazy in
   let lazy fsname = fsname_lazy in
-  (*prerr_endline fsname;*)
+  (*log fsname;*)
   if is_mounted ()
   then
     prerr_endline (Printf.sprintf "Mounted on %S" mountpoint)
