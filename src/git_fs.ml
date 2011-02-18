@@ -17,7 +17,10 @@
 (*  along with git-fs.  If not, see <http://www.gnu.org/licenses/>.       *)
 (**************************************************************************)
 
-(* Isn't there a simpler syntax? *)
+(* Cached refs expiry, in seconds *)
+let ref_expiration_secs = 10.
+
+(* Shorthand *)
 module UL = struct
   include Unix.LargeFile
 end
@@ -297,7 +300,8 @@ and ref_tree =
 
 
 (* prefix, and a subtree we haven't traversed yet *)
-type refs_scaff = { refs_depth: int; prefix: string; subtree: ref_tree_i; }
+type refs_scaff = {
+  refs_depth: int; prefix: string; subtree: unit -> ref_tree_i; }
 type ref_scaff = { ref_depth: int; ref_hash: Hash.t; ref_reflog_name: string; }
 (* used to be shared with log and reflog, hence the name *)
 type log_scaff = { log_depth: int; log_hash: Hash.t; log_name: string; }
@@ -465,12 +469,12 @@ let with_caching fn delay_float_secs =
   match !cache with
   |None ->
       let v = fn () in cache := Some (v, Unix.time ()); v
-  |Some (cached, tstamp) when tstamp > Unix.time () +. delay_float_secs ->
+  |Some (_, tstamp) when Unix.time () > tstamp +. delay_float_secs ->
       let v = fn () in cache := Some (v, Unix.time ()); v
-  |Some (cached, tstamp) -> cached
+  |Some (cached, _) -> cached
 
 let ref_tree =
-  with_caching ref_tree_uncached 300.
+  with_caching ref_tree_uncached ref_expiration_secs
 
 let parse_rev_list cmd =
   let r = lines_of_string (backtick_git cmd)
@@ -544,7 +548,7 @@ let root_al () = [
   "HEAD", `FsSymlink "refs/HEAD";
   "trees", `TreesScaff;
   "commits", `CommitsScaff;
-  "refs", `RefsScaff { prefix = ""; subtree = ref_tree (); refs_depth = 0; };
+  "refs", `RefsScaff { prefix = ""; subtree = ref_tree; refs_depth = 0; };
   ]
 
 
@@ -628,11 +632,12 @@ let scaffolding_child (scaff : scaffolding) child : scaffolding =
     |`RefsScaff { prefix = prefix; subtree = children; refs_depth = depth; } ->
       begin
         let prefix1 = if prefix = "" then child else prefix ^ "/" ^ child
-        in match List.assoc child children with
+        and children_val = children ()
+        in match List.assoc child children_val with
           |RefTreeLeaf hash -> `RefScaff { ref_hash = hash;
               ref_depth = depth + 1; ref_reflog_name = prefix1; }
-          |RefTreeInternalNode children -> `RefsScaff {
-              prefix = prefix1; subtree = children; refs_depth = depth + 1; }
+          |RefTreeInternalNode children2 -> `RefsScaff {
+              prefix = prefix1; subtree = (fun () -> children2); refs_depth = depth + 1; }
         end
     |`CommitsScaff -> let h = Hash.of_string child in
         notice_commit_hash h;
@@ -679,7 +684,7 @@ let list_children (scaff : scaffolding) =
     |`CommitsScaff -> (* Not complete either. *)
         List.map Hash.to_string (known_commit_hashes ())
     |`RefsScaff { subtree = children } ->
-        List.map fst children
+        List.map fst (children ())
     |`RefScaff _ -> [ "current"; "worktree"; "log"; "reflog"; ]
     |`CommitHash _ -> [ "msg"; "diff"; "worktree"; "parents"; "log"; ]
     |`ReflogScaff { log_name = name; log_hash = hash; } ->
