@@ -5,6 +5,11 @@ section
    vmount(-l, src, build)
    .SUBDIRS: build
 
+section
+   vmount(-l, src, debug)
+   OCAMLOPTFLAGS += -g
+   .SUBDIRS: debug
+
 if false
 
    section

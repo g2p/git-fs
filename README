@@ -84,4 +84,10 @@ Or use a few special commands
     git fs umount
     git fs help
 
+Debugging
+---------
+
+    MALLOC_CHECK_=3 debug/git-fs debug 2>&1 |tee -a debug.log
+
+
 

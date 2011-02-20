@@ -861,7 +861,7 @@ let is_mounted () =
     git_dir_quoted = fsname)
     (mtab_lines ())
 
-let cmd_mount () =
+let cmd_mount ?(debug=false) () =
   let lazy mountpoint = mountpoint_lazy in
   let lazy fsname = fsname_lazy in
   (*log fsname;*)
@@ -872,15 +872,16 @@ let cmd_mount () =
     begin try Unix.mkdir mountpoint 0o755
     with Unix.Unix_error (Unix.EEXIST, _, _) -> () end;
     prerr_endline (Printf.sprintf "Mounting on %S" mountpoint);
-    let fuse_args = [|
-      fs_subtype; (*"-f";*)
+    let fuse_args = [
       "-o"; "ro";
       (* fuse doesn't guess the subtype anymore, if we give it fsname *)
       "-osubtype=" ^ fs_subtype;
       "-ofsname=" ^ fsname;
       mountpoint;
-      |] in
-    Fuse.main fuse_args fuse_ops
+      ] in
+    let fuse_args = if debug then "-s"::"-d"::fuse_args else fuse_args in
+    let fuse_args = fs_subtype::fuse_args in
+    Fuse.main (Array.of_list fuse_args) fuse_ops
   end
 
 let cmd_umount () =
@@ -915,7 +916,8 @@ let cmd_fuse_help () =
 let _ =
   match Sys.argv with
   |[| _ |] -> cmd_mount ()
-  |[| _; "mount" |] -> cmd_mount ()
+  |[| _; "mount" |] -> cmd_mount ~debug:false ()
+  |[| _; "debug" |] -> cmd_mount ~debug:true ()
   |[| _; "umount" |] -> cmd_umount ()
   |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
   |[| _; "is-mounted" |] -> cmd_is_mounted ()
