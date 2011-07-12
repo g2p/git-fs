@@ -158,6 +158,7 @@ let abspath path =
 
 (* Must be lazy, so commands like help and mtab work outside of a git dir. *)
 let git_dir_rel_lazy = lazy (
+  Unix.putenv "GIT_DISCOVERY_ACROSS_FILESYSTEM" "1";
   let r = backtick ~trim_endline:true ["git"; "rev-parse"; "--git-dir"; ]
   in if r <> "" then r else failwith "Git directory not found."
   )
@@ -917,12 +918,12 @@ let _ =
   match Sys.argv with
   |[| _ |] -> cmd_mount ()
   |[| _; "mount" |] -> cmd_mount ~debug:false ()
-  |[| _; "debug" |] -> cmd_mount ~debug:true ()
+  |[| _; "debug" |] -> cmd_mount ~debug:true () (* For development *)
   |[| _; "umount" |] -> cmd_umount ()
   |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
   |[| _; "is-mounted" |] -> cmd_is_mounted ()
   |[| _; "mtab" |] -> cmd_mtab ()
   |[| _; "help" |] -> cmd_help ()
-  |[| _; "fuse-help" |] -> cmd_fuse_help () (* For developer use *)
+  |[| _; "fuse-help" |] -> cmd_fuse_help () (* For development *)
   |_ -> begin usage (); exit 2; end
 
