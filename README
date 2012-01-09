@@ -43,11 +43,12 @@ Build instructions
 ------------------
 
 git-fs depends on FUSE and some OCaml libraries.
-It has been tested on Debian/Ubuntu.
+It has been tested on Debian, Ubuntu, and ArchLinux.
 
 Get the dependencies:
 
     sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
+    sudo pacman -S omake ocamlfuse-cvs pcre-ocaml ocaml-batteries
 
 Get ocamlfuse from source; use the CVS version which fixes some GC errors.
 
