@@ -49,11 +49,10 @@ Get the dependencies:
 
     sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
 
-Get ocamlfuse from source; ocamlfuse-2.7-1.tar.gz was used.
+Get ocamlfuse from source; use the CVS version which fixes some GC errors.
 
-    wget http://downloads.sf.net/ocamlfuse/2.7/ocamlfuse-2.7-1.tar.gz
-    sha256sum ocamlfuse-2.7-1.tar.gz
-    c68eebae24a22ac5bd8394d3a5534b5411f10f9444f2d3bc8a8aabc40bb0e4be  ocamlfuse-2.7-1.tar.gz
+    curl 'http://ocamlfuse.cvs.sourceforge.net/viewvc/ocamlfuse/?view=tar' |gunzip > ocamlfuse.tar
+    echo 'e55ba7fc9f02035068efb97b86ea42449d25e4a745563f46215591df9e9ab149  ocamlfuse.tar' |sha256sum -c
 
 Unpack ocamlfuse to a folder called (or symlinked) deps/ocamlfuse.
 
