@@ -1,5 +1,5 @@
 (************************************vim: set tw=0 sw=2 ts=2 et :**********)
-(*  Copyright (C) 2010 G2P                                                *)
+(*  Copyright (C) 2012 G2P                                                *)
 (*                                                                        *)
 (*  This file is part of git-fs.                                          *)
 (*                                                                        *)
@@ -862,7 +862,7 @@ let is_mounted () =
     git_dir_quoted = fsname)
     (mtab_lines ())
 
-let cmd_mount ?(debug=false) () =
+let cmd_mount ?(debug=false) ?(allow_other=false) () =
   let lazy mountpoint = mountpoint_lazy in
   let lazy fsname = fsname_lazy in
   (*log fsname;*)
@@ -881,6 +881,7 @@ let cmd_mount ?(debug=false) () =
       mountpoint;
       ] in
     let fuse_args = if debug then "-s"::"-d"::fuse_args else fuse_args in
+    let fuse_args = if allow_other then "-o"::"allow_other"::fuse_args else fuse_args in
     let fuse_args = fs_subtype::fuse_args in
     Fuse.main (Array.of_list fuse_args) fuse_ops
   end
@@ -907,7 +908,7 @@ let cmd_mtab () =
     print_endline mountpoint) (mtab_lines ())
 
 let usage () =
-  prerr_endline "Usage: git fs [mount|umount|show-mountpoint|is-mounted|mtab|help]"
+  prerr_endline "Usage: git fs [mount [--allow-other]|umount|show-mountpoint|is-mounted|mtab|help]"
 
 let cmd_help = usage
 
@@ -916,8 +917,13 @@ let cmd_fuse_help () =
 
 let _ =
   match Sys.argv with
+  (* TODO use an option parsing library? *)
   |[| _ |] -> cmd_mount ()
-  |[| _; "mount" |] -> cmd_mount ~debug:false ()
+  |[| _; "mount" |] -> cmd_mount ()
+  (* --allow-other / -o allow_other lets other users access the filesystem.
+   * They might get read privileges to more of the repository
+   * than if they attempted to run git fs themselves. *)
+  |[| _; "mount"; "--allow-other" |] -> cmd_mount ~allow_other:true ()
   |[| _; "debug" |] -> cmd_mount ~debug:true () (* For development *)
   |[| _; "umount" |] -> cmd_umount ()
   |[| _; "show-mountpoint" |] -> cmd_show_mountpoint ()
