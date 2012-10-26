@@ -50,15 +50,9 @@ Get the dependencies:
     sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
     sudo pacman -S omake ocamlfuse-cvs pcre-ocaml ocaml-batteries
 
-Get ocamlfuse from source; use the CVS version which fixes some GC errors.
-
-    curl 'http://ocamlfuse.cvs.sourceforge.net/viewvc/ocamlfuse/?view=tar' |gunzip > ocamlfuse.tar
-    echo 'e55ba7fc9f02035068efb97b86ea42449d25e4a745563f46215591df9e9ab149  ocamlfuse.tar' |sha256sum -c
-
-Unpack ocamlfuse to a folder called (or symlinked) deps/ocamlfuse.
-
 Build:
 
+    git submodule update --init
     make -C deps/ocamlfuse/lib
     omake
 

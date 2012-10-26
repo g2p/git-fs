@@ -1,0 +1,3 @@
+[submodule "deps/ocamlfuse"]
+	path = deps/ocamlfuse
+	url = https://github.com/astrada/ocamlfuse.git
