@@ -47,8 +47,8 @@ It has been tested on Debian, Ubuntu, and ArchLinux.
 
 Get the dependencies:
 
-    sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev
-    sudo pacman -S omake ocamlfuse-cvs pcre-ocaml ocaml-batteries
+    sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev  # Debian
+    sudo pacman -S omake ocamlfuse-cvs pcre-ocaml ocaml-batteries  # Arch
 
 Build:
 
