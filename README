@@ -53,8 +53,10 @@ Get the dependencies:
 Build:
 
     git submodule update --init
-    make -C deps/ocamlfuse/lib
+    make -C deps/ocamlfuse/lib || make -C deps/ocamlfuse/lib byte-code-library
     omake
+
+
 
 Install (~/bin must be in your path):
 
