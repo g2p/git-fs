@@ -49,7 +49,7 @@ Get the dependencies:
 
     sudo aptitude install omake libfuse-dev camlidl libpcre-ocaml-dev libbatteries-ocaml-dev  # Debian
     sudo pacman -S omake ocamlfuse-cvs pcre-ocaml ocaml-batteries  # Arch
-    sudo yum install fuse fuse-devel ocaml ocaml-pcre ocaml-pcre-devel ocaml-findlib ocaml-findlib-devel ocaml-camomile ocaml-camlidl ocaml-bisect ocaml-ounit ocaml-ocamldoc  # Fedora
+    sudo yum install fuse-devel ocaml-pcre-devel ocaml-findlib-devel ocaml-camomile ocaml-camlidl ocaml-bisect ocaml-ounit ocaml-ocamldoc  # Fedora
 
 Build:
 
