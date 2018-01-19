@@ -38,6 +38,18 @@ How much code in the first major release?
 - Look at wiki pages stored by ikiwiki or gh-pages
 - Serve repository snapshots using a standard webserver.
 
+Quick install
+-------------
+
+```bash
+curl -o- https://raw.githubusercontent.com/freddi301/git-fs/master/install.sh | sudo bash
+```
+
+or
+
+```bash
+wget -qO- https://raw.githubusercontent.com/freddi301/git-fs/master/install.sh | sudo bash
+```
 
 Build instructions
 ------------------
